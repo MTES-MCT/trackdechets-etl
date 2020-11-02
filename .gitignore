@@ -12,3 +12,5 @@ code/data/
 
 #Mac OS
 __MACOSX
+
+.env

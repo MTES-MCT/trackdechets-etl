@@ -4,6 +4,8 @@
 # Then save it as env.sh
 
 # Airflow home dir
+# /!\ this directory is erased at the beginning of init_airflow.sh
+# Save your DAGs in ./dags, they are copied automatically
 export AIRFLOW_HOME=~/airflow
 
 # Airflow user

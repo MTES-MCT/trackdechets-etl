@@ -11,7 +11,7 @@ export AIRFLOW_USERNAME=rogerrabbit
 export AIRFLOW_FIRSTNAME=Roger
 export AIRFLOW_LASTNAME=Rabbit
 export AIRFLOW_EMAIL=rogerrabbit@acme.com
-export AIRFLOW_PASSWORD=iloveyouamanda
+export AIRFLOW_PASSWORD=iloveyoujessica
 
 export ICPE_URL=
 export GEREP_URL=

@@ -30,7 +30,7 @@ airflow users create \
     --email $AIRFLOW_EMAIL \
     --password $AIRFLOW_PASSWORD
 
-cp -r dags $AIRFLOW_HOME/dags
+ln -s `pwd`/dags $AIRFLOW_HOME/dags
 
 # start the web server, default port is 8080
 echo "Starting the webserver..."

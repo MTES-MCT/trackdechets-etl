@@ -2,5 +2,6 @@
 .venv
 ___pycache__
 env.sh
-pytest_cache
+.pytest_cache
 *.log
+tmp

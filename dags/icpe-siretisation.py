@@ -1,17 +1,24 @@
-from airflow import DAG
+from airflow.decorators import dag, task
+from airflow.exceptions import AirflowFailException
 from airflow.models import Variable
 from datetime import datetime
-import pandas as pd
-import requests
-import tarfile
-
-# Operators; we need this to operate!
-from airflow.operators.python import PythonOperator
-
-tmpDataDir = Variable.get("TMP_DATA_DIR")
 
 
-def getIrepData():
+@task()
+def initDir() -> str:
+    import os
+
+    tmpDataDir: str = Variable.get("TMP_DATA_DIR_BASE") + str(datetime.now()) + '/'
+    Variable.set('TMP_DATA_DIR', tmpDataDir)
+
+    os.mkdir(tmpDataDir)
+    return tmpDataDir
+
+
+@task()
+def getIrepData(tmpDataDir) -> str:
+    import pandas as pd
+
     irepPath = Variable.get("IREP_PATH")
     df = pd.read_csv(
         irepPath,
@@ -23,12 +30,16 @@ def getIrepData():
         })
     df.rename(columns={'identifiant': 's3ic', 'numero_siret': 'siret'})
     df.drop_duplicates(inplace=True)
-
     print("Longueur dataframe IREP : " + str(len(df)))
-    df.to_csv(tmpDataDir + "/irep.csv")
+    df.to_csv(tmpDataDir + "irep.csv")
+
+    return tmpDataDir + "irep.csv"
 
 
-def getGerepData():
+@task()
+def getGerepData(tmp_data_dir) -> str:
+    import pandas as pd
+
     gerepPath = Variable.get("GEREP_PATH")
     df = pd.read_csv(
         gerepPath,
@@ -41,58 +52,114 @@ def getGerepData():
     df.drop_duplicates(inplace=True)
 
     print("Longueur dataframe GEREP : " + str(len(df)))
-    df.to_csv(tmpDataDir + "/gerep.csv")
+    df.to_csv(tmp_data_dir + "gerep.csv")
+
+    return tmp_data_dir + "gerep.csv"
 
 
-def downloadIcpeData():
+@task()
+def downloadIcpeData(tmp_data_dir) -> str:
+    import requests
+
+    icpeTarPath = tmp_data_dir + 'icpe.tar.gz'
+
     icpeUrl = Variable.get("ICPE_URL")
     icpeData = requests.get(icpeUrl, allow_redirects=True)
-    open(tmpDataDir + '/icpe.tar.gz', 'wb').write(icpeData.content)
+    open(icpeTarPath, 'wb').write(icpeData.content)
+
+    return icpeTarPath
 
 
-def getIcpeData():
-    icpeTarPath = tmpDataDir + '/icpe.tar.gz'
+@task()
+def extractIcpeFile(icpeTarPath) -> str:
+    import os
+    import tarfile
+
+    tmpDataDir = Variable.get('TMP_DATA_DIR')
 
     # https://stackoverflow.com/a/37474942
     tar = tarfile.open(icpeTarPath, 'r:gz')
+    oriFileName = 'IC_etablissement.csv'
+    oriFilePath = tmpDataDir + oriFileName
+    icpePath = tmpDataDir + 'icpe_ori.csv'
     for member in tar.getmembers():
-        if member.name == 'IC_etablissement.csv':
-            tar.extract(member, path=tmpDataDir + '/icpe_etablissements.ori.csv')
-
-
-def siretisationIcpe():
-    icpePath = tmpDataDir + "/icpe_etablissements.ori.csv"
+        if member.name == oriFileName:
+            tar.extract(member, path=tmpDataDir)
+            os.rename(oriFilePath, icpePath)
+    if os.path.exists(icpePath) and os.path.getsize(icpePath) > 0:
+        print('ICPE data file extracted successfully.')
+    else:
+        raise AirflowFailException
     return icpePath
 
 
-with DAG(dag_id="icpe-siretisation",
-         start_date=datetime(2021, 1, 1),
-         schedule_interval="@daily",
-         catchup=True) as dag:
-    get_gerep_data = PythonOperator(
-        task_id="getGerepData",
-        python_callable=getGerepData
+@task()
+def addIcpeHeaders(icpePath) -> str:
+    import pandas as pd
+
+    tmpDataDir = Variable.get('TMP_DATA_DIR')
+    icpe_with_headers = '{}icpe_{}.csv'.format(tmpDataDir, str(datetime.time(datetime.now())))
+
+    pd.read_csv(icpePath, sep=';', header=1, names=[
+        's3icId',
+        'siret',
+        'x',
+        'y',
+        'region',
+        'raisonSociale',
+        'codeCommune',
+        'codePostal',
+        # 1 = en construction, 2 = en fonctionnement, 3 = à l'arrêt, 4 = cessation déclarée, 5 = Récolement fait
+        'etatActivite',
+        'codeApe',
+        'nomCommune',
+        'seveso',
+        'regime',
+        'prioriteNationale',
+        # cf. biblio https://aida.ineris.fr/node/193
+        'ippc',
+        # Etablissement soumis à la déclaration annuelle d'émissions polluantes et de déchets
+        'declarationAnnuelle',
+        # IN = industrie, BO = bovins, PO = porcs, VO = volailles, CA = carrières
+        'familleIc',
+        # 1 + 1 = DREAL, etc.
+        'baseIdService',
+        'natureIdService',
+        'adresse1',
+        'adresse2',
+        'dateInspection',
+        # Sites et sols pollués:
+        'indicationSsp',
+        'rayon',
+        'precisionPositionnement'
+    ]).to_csv(icpe_with_headers, sep=',')
+
+    return icpe_with_headers
+
+
+@task()
+def siretisationIcpe(icpePath, irepPath, gerepPath):
+    import pandas as pd
+
+    icpe = pd.read_csv(
+        icpePath,
+        keep_default_na=False,
+        index_col='s3icId'
     )
 
-    get_irep_data = PythonOperator(
-        task_id="getIrepData",
-        python_callable=getIrepData
-    )
 
-    download_icpe_data = PythonOperator(
-        task_id="downloadIcpeData",
-        python_callable=downloadIcpeData
-    )
+@dag(start_date=datetime(2021, 1, 1),
+     schedule_interval=None,
+     user_defined_macros={},
+     catchup=False)
+def icpeSiretisation():
+    init_dir = initDir()
+    get_gerep_data = getGerepData(init_dir)
+    get_irep_data = getIrepData(init_dir)
+    download_icpe_data = downloadIcpeData(init_dir)
+    get_icpe_data = extractIcpeFile(download_icpe_data)
+    add_icpe_headers = addIcpeHeaders(get_icpe_data)
+    siretisationIcpe(add_icpe_headers, get_irep_data, get_gerep_data)
 
-    get_icpe_data = PythonOperator(
-        task_id="getIcpeData",
-        python_callable=getIcpeData
-    )
 
-    siretisation_icpe = PythonOperator(
-        task_id="siretisationIcpe",
-        python_callable=siretisationIcpe
-    )
-
-download_icpe_data >> get_icpe_data
-[get_gerep_data, get_irep_data, get_icpe_data] >> siretisation_icpe
+icpe_siretisation_etl = icpeSiretisation()

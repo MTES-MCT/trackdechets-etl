@@ -1,7 +1,7 @@
 .idea
 .venv
-___pycache__
+__pycache__
 env.sh
 .pytest_cache
 *.log
-tmp
+tmp*

@@ -15,9 +15,12 @@ export AIRFLOW_LASTNAME=Rabbit
 export AIRFLOW_EMAIL=rogerrabbit@acme.com
 export AIRFLOW_PASSWORD=iloveyoujessica
 
-export ICPE_URL=
-export GEREP_URL=
-export IREP_URL=
+DATA_ROOT_DIR="/media/user/data"
+
+export AIRFLOW_VAR_ICPE_URL="https://example.georisques.fr/s3ic.tar.gz"
+export AIRFLOW_VAR_GEREP_PATH="${DATA_ROOT_DIR}/georisques-gerep/gerep.csv"
+export AIRFLOW_VAR_IREP_PATH="${DATA_ROOT_DIR}/georisques-irep/etablissements.csv"
+export AIRFLOW_VAR_TMP_DATA_DIR_BASE="/home/user/data/tmp"
 
 # Airflow settings override
 export AIRFLOW__CORE__LOAD_EXAMPLES=False

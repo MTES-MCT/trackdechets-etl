@@ -48,7 +48,7 @@ def getGerepData(tmp_data_dir) -> str:
             'Code établissement': str,
             'Numero Siret': str
         })
-    df.rename(columns={'Code établissement': 's3ic', 'Numero Siret': 'siret'})
+    df.rename(columns={'Code établissement': 's3icId', 'Numero Siret': 'siret'}, inplace=True)
     df.drop_duplicates(inplace=True)
 
     print("Longueur dataframe GEREP : " + str(len(df)))
@@ -100,7 +100,7 @@ def addIcpeHeaders(icpePath) -> str:
     tmpDataDir = Variable.get('TMP_DATA_DIR')
     icpe_with_headers = '{}icpe_{}.csv'.format(tmpDataDir, str(datetime.time(datetime.now())))
 
-    pd.read_csv(icpePath, sep=';', header=1, names=[
+    pd.read_csv(icpePath, sep=';', header=1, dtype={'siret': str, 'codePostal': str, 'codeCommune': str}, names=[
         's3icId',
         'siret',
         'x',
@@ -138,14 +138,39 @@ def addIcpeHeaders(icpePath) -> str:
 
 
 @task()
-def siretisationIcpe(icpePath, irepPath, gerepPath):
+def siretisationIcpe(icpePath, irepPath, gerepPath) -> str:
     import pandas as pd
 
+    tmpDataDir = Variable.get('TMP_DATA_DIR')
     icpe = pd.read_csv(
         icpePath,
         keep_default_na=False,
         index_col='s3icId'
     )
+
+    irep = pd.read_csv(irepPath, names=['id', 's3icId', 'siret'], index_col='s3icId')
+    gerep = pd.read_csv(gerepPath, index_col='s3icId')
+    # icpe = icpe.join(irep, how='left')
+
+    icpe_siretisation = '{}icpe_{}.csv'.format(tmpDataDir, str(datetime.time(datetime.now())))
+    icpe.to_csv(icpe_siretisation)
+    return icpe_siretisation
+
+
+@task()
+def siretisationStats(siretisation_path):
+    import pandas as pd
+    icpe = pd.read_csv(siretisation_path, dtype={'siret': str}, keep_default_na=False)
+    end_with_zero = len(icpe.loc[icpe['siret'].str.endswith('00000')].index)
+    empty_siret = len(icpe.loc[icpe['siret'] == ''].index)
+    total = len(icpe.index)
+
+    stats = f'''
+        sirets terminés par 00000 = {end_with_zero}
+        sirets vides = {empty_siret}
+        total = {total}
+    '''
+    return stats
 
 
 @dag(start_date=datetime(2021, 1, 1),
@@ -159,7 +184,10 @@ def icpeSiretisation():
     download_icpe_data = downloadIcpeData(init_dir)
     get_icpe_data = extractIcpeFile(download_icpe_data)
     add_icpe_headers = addIcpeHeaders(get_icpe_data)
-    siretisationIcpe(add_icpe_headers, get_irep_data, get_gerep_data)
+    icpe_siretise = siretisationIcpe(add_icpe_headers, get_irep_data, get_gerep_data)
+    siretisationStats(icpe_siretise)
+
+
 
 
 icpe_siretisation_etl = icpeSiretisation()

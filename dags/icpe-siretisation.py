@@ -64,8 +64,14 @@ def downloadIcpeData(tmp_data_dir) -> str:
     icpeTarPath = tmp_data_dir + 'icpe.tar.gz'
 
     icpeUrl = Variable.get("ICPE_URL")
-    icpeData = requests.get(icpeUrl, allow_redirects=True)
-    open(icpeTarPath, 'wb').write(icpeData.content)
+
+    # If the file is on the local filesystem (testing env), copy instead of downloading
+    if icpeUrl.startswith('/'):
+        from shutil import copyfile
+        copyfile(icpeUrl, icpeTarPath)
+    else:
+        icpeData = requests.get(icpeUrl, allow_redirects=True)
+        open(icpeTarPath, 'wb').write(icpeData.content)
 
     return icpeTarPath
 
@@ -107,7 +113,7 @@ def addIcpeHeaders(icpePath) -> str:
         'y',
         'region',
         'raisonSociale',
-        'codeCommune',
+        'codeCommuneEtablissement',
         'codePostal',
         # 1 = en construction, 2 = en fonctionnement, 3 = à l'arrêt, 4 = cessation déclarée, 5 = Récolement fait
         'etatActivite',
@@ -142,18 +148,59 @@ def siretisationIcpe(icpePath, irepPath, gerepPath) -> str:
     import pandas as pd
 
     tmpDataDir = Variable.get('TMP_DATA_DIR')
+    sirene_path = Variable.get("SIRENE_PATH")
+    print(sirene_path)
+
     icpe = pd.read_csv(
         icpePath,
         keep_default_na=False,
-        index_col='s3icId'
+        index_col=['siret', 'codeCommuneEtablissement']
     )
 
-    irep = pd.read_csv(irepPath, names=['id', 's3icId', 'siret'], index_col='s3icId')
-    gerep = pd.read_csv(gerepPath, index_col='s3icId')
-    # icpe = icpe.join(irep, how='left')
+    # We tag the icpe rows that have valid SIRET
+    icpe['siret_valid'] = icpe['siret'].str.len() == 14
+    # and keep only the valid ones
+    icpe = icpe.loc[icpe['siret_valid']]
+
+
+    # Le fichier StockEtablissement (https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/)
+    # avec au moins les colonnes suivantes :
+    # - siret
+    # - codePostalEtablissement
+    # - etatAdministratifEtablissement
+    # - libelleCommuneEtablissement
+    # - numeroVoieEtablissement
+    # - typeVoieEtablissement
+    # - activitePrincipaleEtablissement
+    # - libelleVoieEtablissement
+
+    with pd.read_csv(
+        sirene_path,
+        low_memory=True,
+        chunksize=3000000,
+        usecols=['siret', 'codePostalEtablissement', 'etatAdministratifEtablissement', 'codeCommuneEtablissement', 'libelleCommuneEtablissement',
+                 'numeroVoieEtablissement', 'typeVoieEtablissement', 'activitePrincipaleEtablissement',
+                 'libelleVoieEtablissement'],
+        dtype={
+            'siret': str,
+            'codePostalEtablissement': str,
+            'etatAdministratifEtablissement': 'category',
+            'codeCommuneEtablissement': str,
+            'libelleCommuneEtablissement': str,
+            'numeroVoieEtablissement': str,
+            'typeVoieEtablissement': 'category',
+            'activitePrincipaleEtablissement': 'category',
+            'libelleVoieEtablissement': str
+        },
+        index_col=['siret', 'codeCommuneEtablissement']) as reader:
+
+        for chunk in reader:
+            pass
+
 
     icpe_siretisation = '{}icpe_{}.csv'.format(tmpDataDir, str(datetime.time(datetime.now())))
     icpe.to_csv(icpe_siretisation)
+
     return icpe_siretisation
 
 

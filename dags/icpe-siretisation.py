@@ -1,5 +1,4 @@
 from airflow.decorators import dag, task
-from airflow.exceptions import AirflowFailException
 from airflow.models import Variable
 from datetime import datetime
 from os.path import join
@@ -186,12 +185,26 @@ def siretisationStats(siretisation_path):
 
 
 @task()
-def loadToDatabase():
+def loadToDatabase(ic_siretise, icpeFiles) -> None:
+    from sqlalchemy import create_engine
+    import pandas as pd
 
-    # 1 table for installations
-    # 1 table for rubriques
-    pass
+    pgUser = Variable.get('PGSQL_USER')
+    pgPassword = Variable.get('PGSQL_PASSWORD')
+    pgHost = Variable.get('PGSQL_HOST')
+    pgPort = Variable.get('PGSQL_PORT')
+    pgDatabase = Variable.get('PGSQL_DATABASE')
 
+    engine = create_engine('postgresql+psycopg2://{}:{}@{}:{}/{}'.format(pgUser,pgPassword,pgHost,pgPort,pgDatabase), echo=True)
+
+    pd.read_pickle(ic_siretise).to_sql('ic_installations', con=engine)
+    pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv']).to_sql('ic_rubriques', con=engine)
+
+    installations = engine.execute('SELECT "id_installation_classee" FROM ic_installations').fetchall()
+    print('nb installations: ' + str(len(installations)))
+
+    rubriques = engine.execute('SELECT "id" FROM ic_rubriques').fetchall()
+    print('nb rubriques: ' + str(len(rubriques)))
 
 
 
@@ -207,6 +220,7 @@ def icpeETL():
     add_icpe_headers = addIcpeHeaders(get_icpe_data)
     ic_siretise = enrichInstallations(add_icpe_headers, get_irep_data)
     siretisationStats(ic_siretise)
+    loadToDatabase(ic_siretise, add_icpe_headers)
 
 
 icpe_etl = icpeETL()

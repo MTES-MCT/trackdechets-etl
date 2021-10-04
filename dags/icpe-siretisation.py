@@ -21,7 +21,7 @@ def getIrepData(tmpDataDir) -> str:
     import pandas as pd
 
     irepPath = Variable.get("IREP_PATH")
-    irepCsvPath = join(tmpDataDir, "irep.csv")
+    irepPklPath = join(tmpDataDir, "irep.pkl")
     df = pd.read_csv(
         irepPath,
         usecols=['identifiant', 'numero_siret'],
@@ -33,9 +33,9 @@ def getIrepData(tmpDataDir) -> str:
     df.rename(columns={'identifiant': 's3ic', 'numero_siret': 'siret'})
     df.drop_duplicates(inplace=True)
     print("Longueur dataframe IREP : " + str(len(df)))
-    df.to_csv(irepCsvPath)
+    df.to_pickle(irepPklPath)
 
-    return irepCsvPath
+    return irepPklPath
 
 
 
@@ -86,7 +86,7 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
     now = str(datetime.time(datetime.now()))
 
     def makeNewFilename(ori) -> str:
-        return join(tmpDataDir, '{}_{}.csv'.format(ori, now))
+        return join(tmpDataDir, '{}_{}.pkl'.format(ori, now))
 
     options = {
         "IC_etablissement.csv": {
@@ -110,8 +110,9 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
                 'indicationSsp',
                 'rayon', 'precisionPositionnement'
             ],
-            'dtype': {'siret': str, 'codePostal': str, 'codeCommune': str},
-            'parse_dates': []
+            'dtype': {0: str, 'siret': str, 'codePostal': str, 'codeCommuneEtablissement': str},
+            'parse_dates': [],
+            'index_col': 0
         },
         'IC_installation_classee.csv': {
             'names': [
@@ -120,7 +121,8 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
             'dtype': {
                 's3icId': str, 'volume': float, 'statut_ic': str
             },
-            'parse_dates': ['date_debut_exploitation', 'date_fin_validite']
+            'parse_dates': ['date_debut_exploitation', 'date_fin_validite'],
+            'index_col': 'id_installation_classee'
         },
         'IC_ref_nomenclature_ic.csv': {
             'names': [
@@ -133,7 +135,8 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
                 'envigueur': int,
                 'ippc': int
             },
-            'parse_dates': []
+            'parse_dates': [],
+            'index_col': 'id'
         }
 
     }
@@ -144,8 +147,8 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
         newFilename = join(tmpDataDir, makeNewFilename(file))
         icpeWithHeaders[file] = newFilename
         pd.read_csv(join(tmpDataDir, file), sep=';', header=1, dtype=options[file]['dtype'], parse_dates=options[file]['parse_dates'],
-                    names=options[file]['names']) \
-            .to_csv(newFilename, sep=',')
+                    names=options[file]['names'], index_col=options[file]['index_col'], dayfirst=True) \
+            .to_pickle(newFilename)
 
     return icpeWithHeaders
 
@@ -156,14 +159,14 @@ def enrichInstallations(icpeFiles: dict, irepFile) -> str:
 
     tmpDataDir = Variable.get('TMP_DATA_DIR')
 
-    ic_siretise = join(tmpDataDir, 'ic_siretise.csv')
+    ic_siretise = join(tmpDataDir, 'ic_siretise.pkl')
 
-    etablissements = pd.read_csv(icpeFiles['IC_etablissement.csv'], index_col='s3icId', usecols=['s3icId', 'siret'])
-    installations = pd.read_csv(icpeFiles['IC_installation_classee.csv'], index_col='id_installation_classee')
+    etablissements = pd.read_pickle(icpeFiles['IC_etablissement.csv'])[['siret']]
+    installations = pd.read_pickle(icpeFiles['IC_installation_classee.csv'])
 
-    installations = installations.join(etablissements)
+    installations = installations.merge(etablissements, left_on='s3icId', how='left', right_index=True)
 
-    installations.to_csv(ic_siretise)
+    installations.to_pickle(ic_siretise)
 
     return ic_siretise
 
@@ -171,13 +174,11 @@ def enrichInstallations(icpeFiles: dict, irepFile) -> str:
 @task()
 def siretisationStats(siretisation_path):
     import pandas as pd
-    icpe = pd.read_csv(siretisation_path, dtype={'siret': str}, keep_default_na=False, usecols=['siret'])
-    end_with_zero = len(icpe.loc[icpe['siret'].str.endswith('00000')].index)
+    icpe = pd.read_pickle(siretisation_path)
     empty_siret = len(icpe.loc[icpe['siret'] == ''].index)
     total = len(icpe.index)
 
     stats = f'''
-        sirets terminés par 00000 = {end_with_zero}
         sirets vides = {empty_siret}
         total = {total}
     '''

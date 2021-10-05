@@ -23,6 +23,10 @@ export AIRFLOW_VAR_PGSQL_PORT="5432"
 export AIRFLOW_VAR_PGSQL_DATABASE=""
 export AIRFLOW_VAR_PGSQL_SCHEMA=""
 
+# Postgre tables
+export AIRFLOW_VAR_TABLE_INSTALLATIONS="IC_installations"
+export AIRFLOW_VAR_TABLE_RUBRIQUES="IC_rubriques"
+
 # Parent directory of the data sources
 DATA_ROOT_DIR="/media/colin/data"
 

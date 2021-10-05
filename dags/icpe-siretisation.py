@@ -16,29 +16,6 @@ def initDir() -> str:
 
 
 @task()
-def getIrepData(tmpDataDir) -> str:
-    import pandas as pd
-
-    irepPath = Variable.get("IREP_PATH")
-    irepPklPath = join(tmpDataDir, "irep.pkl")
-    df = pd.read_csv(
-        irepPath,
-        usecols=['identifiant', 'numero_siret'],
-        sep=';',
-        dtype={
-            'numero_siret': str,
-            'identifiant': str
-        })
-    df.rename(columns={'identifiant': 's3ic', 'numero_siret': 'siret'})
-    df.drop_duplicates(inplace=True)
-    print("Longueur dataframe IREP : " + str(len(df)))
-    df.to_pickle(irepPklPath)
-
-    return irepPklPath
-
-
-
-@task()
 def downloadIcpeData(tmp_data_dir) -> str:
     import requests
 
@@ -194,11 +171,14 @@ def loadToDatabase(ic_siretise, icpeFiles) -> None:
     pgHost = Variable.get('PGSQL_HOST')
     pgPort = Variable.get('PGSQL_PORT')
     pgDatabase = Variable.get('PGSQL_DATABASE')
+    pgSchema = Variable.get('PGSQL_SCHEMA')
+    tableInstallations = Variable.get('TABLE_INSTALLATIONS')
+    tableRubriques = Variable.get('TABLE_RUBRIQUES')
 
     engine = create_engine('postgresql+psycopg2://{}:{}@{}:{}/{}'.format(pgUser,pgPassword,pgHost,pgPort,pgDatabase), echo=True)
 
-    pd.read_pickle(ic_siretise).to_sql('ic_installations', con=engine)
-    pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv']).to_sql('ic_rubriques', con=engine)
+    pd.read_pickle(ic_siretise).to_sql(tableInstallations, con=engine, schema=pgSchema, if_exists='replace')
+    pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv']).to_sql(tableRubriques, con=engine, schema=pgSchema, if_exists='replace')
 
     installations = engine.execute('SELECT "id_installation_classee" FROM ic_installations').fetchall()
     print('nb installations: ' + str(len(installations)))
@@ -207,18 +187,16 @@ def loadToDatabase(ic_siretise, icpeFiles) -> None:
     print('nb rubriques: ' + str(len(rubriques)))
 
 
-
 @dag(start_date=datetime(2021, 1, 1),
      schedule_interval=None,
      user_defined_macros={},
      catchup=False)
 def icpeETL():
     init_dir = initDir()
-    get_irep_data = getIrepData(init_dir)
     download_icpe_data = downloadIcpeData(init_dir)
     get_icpe_data = extractIcpeFiles(download_icpe_data)
     add_icpe_headers = addIcpeHeaders(get_icpe_data)
-    ic_siretise = enrichInstallations(add_icpe_headers, get_irep_data)
+    ic_siretise = enrichInstallations(add_icpe_headers)
     siretisationStats(ic_siretise)
     loadToDatabase(ic_siretise, add_icpe_headers)
 

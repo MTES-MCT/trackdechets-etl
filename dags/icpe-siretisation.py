@@ -92,7 +92,8 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
         },
         'IC_installation_classee.csv': {
             'names': [
-                's3icId', 'id_installation_classee', 'volume', 'unite', 'date_debut_exploitation',  'date_fin_validite', 'statut_ic', 'id_ref_nomencla_ic'
+                's3icId', 'id_installation_classee', 'volume', 'unite', 'date_debut_exploitation', 'date_fin_validite',
+                'statut_ic', 'id_ref_nomencla_ic'
             ],
             'dtype': {
                 's3icId': str, 'volume': float, 'statut_ic': str
@@ -102,7 +103,8 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
         },
         'IC_ref_nomenclature_ic.csv': {
             'names': [
-                'id', 'rubrique_ic', 'famille_ic', 'sfamille_ic', 'ssfamille_ic', 'alinea', 'libellecourt_activite', 'id_regime', 'envigueur', 'ippc'
+                'id', 'rubrique_ic', 'famille_ic', 'sfamille_ic', 'ssfamille_ic', 'alinea', 'libellecourt_activite',
+                'id_regime', 'envigueur', 'ippc'
             ],
             'dtype': {
                 'rubrique_ic': str,
@@ -122,7 +124,8 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
     for file in icpeFiles:
         newFilename = join(tmpDataDir, makeNewFilename(file))
         icpeWithHeaders[file] = newFilename
-        pd.read_csv(join(tmpDataDir, file), sep=';', header=1, dtype=options[file]['dtype'], parse_dates=options[file]['parse_dates'],
+        pd.read_csv(join(tmpDataDir, file), sep=';', header=1, dtype=options[file]['dtype'],
+                    parse_dates=options[file]['parse_dates'],
                     names=options[file]['names'], index_col=options[file]['index_col'], dayfirst=True) \
             .to_pickle(newFilename)
 
@@ -130,7 +133,7 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
 
 
 @task()
-def enrichInstallations(icpeFiles: dict, irepFile) -> str:
+def enrichInstallations(icpeFiles: dict) -> str:
     import pandas as pd
 
     tmpDataDir = Variable.get('TMP_DATA_DIR')
@@ -175,10 +178,12 @@ def loadToDatabase(ic_siretise, icpeFiles) -> None:
     tableInstallations = Variable.get('TABLE_INSTALLATIONS')
     tableRubriques = Variable.get('TABLE_RUBRIQUES')
 
-    engine = create_engine('postgresql+psycopg2://{}:{}@{}:{}/{}'.format(pgUser,pgPassword,pgHost,pgPort,pgDatabase), echo=True)
+    engine = create_engine(
+        'postgresql+psycopg2://{}:{}@{}:{}/{}'.format(pgUser, pgPassword, pgHost, pgPort, pgDatabase), echo=True)
 
     pd.read_pickle(ic_siretise).to_sql(tableInstallations, con=engine, schema=pgSchema, if_exists='replace')
-    pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv']).to_sql(tableRubriques, con=engine, schema=pgSchema, if_exists='replace')
+    pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv']).to_sql(tableRubriques, con=engine, schema=pgSchema,
+                                                                   if_exists='replace')
 
     installations = engine.execute('SELECT "id_installation_classee" FROM ic_installations').fetchall()
     print('nb installations: ' + str(len(installations)))

@@ -13,9 +13,16 @@ pip install -r requirements.txt
 ```
 2. Faites une copie de `sample.env.sh` vers `env.sh`
 3. Ajustez les variables de `env.sh` à votre environnement
-4. Installez et démarrez Airflow :
+4. Sourcez `env.sh` afin de déclarer les variables d'environnemnet (`source env.sh`)
+5. Installez et démarrez Airflow :
 
 ```bash
 ./init_airflow.sh
 ```
+
+6. Dans Airflow, activez le  DAG icpeETL
+7. À droite, cliquez sur le bouton 'Lecture', puis 'Trigger DAG'
+
+Le DAG est exécuté.
+
 

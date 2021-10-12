@@ -39,8 +39,8 @@ ln -s `pwd`/dags $AIRFLOW_HOME/dags
 # start the web server, default port is 8080
 echo "Starting the webserver..."
 
-port = int(os.environ.get("PORT", 8080))
-airflow webserver --port port
+port=$PORT || 8080
+airflow webserver --port $port
 
 # visit localhost:8080 in the browser and use the admin account you just
 # created to login.

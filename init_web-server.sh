@@ -34,11 +34,12 @@ airflow users create \
     --email $AIRFLOW_EMAIL \
     --password $AIRFLOW_PASSWORD
 
-ln -s `pwd`/dags $AIRFLOW_HOME/dags
+if [[ ! $SCALINGO_POSTGRESQL_URL ]]
+  ln -s `pwd`/dags $AIRFLOW_HOME/dags
+fi
 
 # start the web server, default port is 8080
 echo "Starting the webserver..."
-
 port=$PORT || 8080
 airflow webserver --port $port
 

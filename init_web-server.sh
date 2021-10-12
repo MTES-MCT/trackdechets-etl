@@ -7,6 +7,15 @@
 # Set via env file
 # export AIRFLOW_HOME=~/airflow
 
+# If not deployed on Scalingo, get the env from env.sh
+if [[ ! $SCALINGO_POSTGRESQL_URL ]]
+then
+  source ./env.sh
+fi
+
+# Start from scratch
+rm -rf $AIRFLOW_HOME
+
 # initialize the database
 airflow db init
 
@@ -21,7 +30,6 @@ airflow users create \
 if [[ ! $SCALINGO_POSTGRESQL_URL ]]
   then
   ln -s `pwd`/dags $AIRFLOW_HOME/dags
-  else
 fi
 
 pwd
@@ -30,9 +38,8 @@ ls -l
 # start the web server, default port is 8080
 echo "Starting the webserver..."
 port=${PORT:-8080}
-airflow webserver --port $port
+airflow webserver --port $port &
 
-./scheduler.sh &
-
+./scheduler.sh
 # visit localhost:8080 in the browser and use the admin account you just
 # created to login.

@@ -35,6 +35,7 @@ airflow users create \
     --password $AIRFLOW_PASSWORD
 
 if [[ ! $SCALINGO_POSTGRESQL_URL ]]
+  then
   ln -s `pwd`/dags $AIRFLOW_HOME/dags
 fi
 

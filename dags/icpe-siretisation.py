@@ -174,12 +174,19 @@ def loadToDatabase(ic_siretise, icpeFiles) -> None:
     pgHost = Variable.get('PGSQL_HOST')
     pgPort = Variable.get('PGSQL_PORT')
     pgDatabase = Variable.get('PGSQL_DATABASE')
+    pgConnectionString = Variable.get('PGSQL_CONNECTION_STRING')
     pgSchema = Variable.get('PGSQL_SCHEMA')
     tableInstallations = Variable.get('TABLE_INSTALLATIONS')
     tableRubriques = Variable.get('TABLE_RUBRIQUES')
 
+    if pgConnectionString != "":
+        engineString = pgConnectionString
+    else:
+        engineString = '{}:{}@{}:{}/{}'.format(pgUser, pgPassword, pgHost, pgPort, pgDatabase)
+
+
     engine = create_engine(
-        'postgresql+psycopg2://{}:{}@{}:{}/{}'.format(pgUser, pgPassword, pgHost, pgPort, pgDatabase), echo=True)
+        'postgresql+psycopg2://' + engineString, echo=True)
 
     pd.read_pickle(ic_siretise).to_sql(tableInstallations, con=engine, schema=pgSchema, if_exists='replace')
     pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv']).to_sql(tableRubriques, con=engine, schema=pgSchema,

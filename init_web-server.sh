@@ -40,7 +40,7 @@ fi
 
 # start the web server, default port is 8080
 echo "Starting the webserver..."
-port=$PORT || 8080
+port=${PORT:-8080}
 airflow webserver --port $port
 
 # visit localhost:8080 in the browser and use the admin account you just

@@ -67,9 +67,9 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
     options = {
         "IC_etablissement.csv": {
             'names': [
-                's3icId',
-                'siret',
-                'x', 'y', 'region', 'raisonSociale', 'codeCommuneEtablissement', 'codePostal',
+                'codeS3ic',
+                's3icNumeroSiret',
+                'x', 'y', 'region', 'nomEts', 'codeCommuneEtablissement', 'codePostal',
                 # 1 = en construction, 2 = en fonctionnement, 3 = à l'arrêt, 4 = cessation déclarée, 5 = Récolement fait
                 'etatActivite',
                 'codeApe', 'nomCommune', 'seveso', 'regime', 'prioriteNationale',
@@ -92,7 +92,7 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
         },
         'IC_installation_classee.csv': {
             'names': [
-                's3icId', 'id_installation_classee', 'volume', 'unite', 'date_debut_exploitation', 'date_fin_validite',
+                'codeS3ic', 'id_installation_classee', 'volume', 'unite', 'date_debut_exploitation', 'date_fin_validite',
                 'statut_ic', 'id_ref_nomencla_ic'
             ],
             'dtype': {
@@ -147,6 +147,7 @@ def enrichInstallations(icpeFiles: dict) -> str:
 
     installations.to_pickle(ic_siretise)
 
+
     return ic_siretise
 
 
@@ -165,7 +166,7 @@ def siretisationStats(siretisation_path):
 
 
 @task()
-def loadToDatabase(ic_siretise, icpeFiles) -> None:
+def loadToDatabase(ic_siretise, icpeFiles) -> dict:
     from sqlalchemy import create_engine
     import pandas as pd
 
@@ -179,11 +180,7 @@ def loadToDatabase(ic_siretise, icpeFiles) -> None:
     tableInstallations = Variable.get('TABLE_INSTALLATIONS')
     tableRubriques = Variable.get('TABLE_RUBRIQUES')
 
-    if pgConnectionString != "":
-        engineString = pgConnectionString
-    else:
-        engineString = '{}:{}@{}:{}/{}'.format(pgUser, pgPassword, pgHost, pgPort, pgDatabase)
-
+    engineString = pgConnectionString or '{}:{}@{}:{}/{}'.format(pgUser, pgPassword, pgHost, pgPort, pgDatabase)
 
     engine = create_engine(
         'postgresql+psycopg2://' + engineString, echo=True)
@@ -197,6 +194,13 @@ def loadToDatabase(ic_siretise, icpeFiles) -> None:
 
     rubriques = engine.execute('SELECT "id" FROM ic_rubriques').fetchall()
     print('nb rubriques: ' + str(len(rubriques)))
+
+    return (
+        {
+            'Installation': ic_siretise,
+            'Rubrique': icpeFiles['IC_ref_nomenclature_ic.csv']
+        }
+    )
 
 
 @dag(start_date=datetime(2021, 1, 1),

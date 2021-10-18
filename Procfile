@@ -1,2 +1,2 @@
-web: ./init_web-server.sh
+web: ./start.sh
 # scheduler: sleep 10 && ./scheduler.sh

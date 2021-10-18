@@ -4,12 +4,12 @@ Scripts de transformation de données dans le cadre de Trackdéchets, orchestré
 
 ## Configuration
 
-Il est recommandé d'utiliser un [environnement virtuel Python](https://docs.python.org/3/tutorial/venv.html)
+Le projet utilise [pipenv](https://pypi.org/project/pipenv/) pour la gestion des dépendances.
 
 1. Installez les dépendances (`apache-airflow` est installé plus tard) :
 
 ```bash
-pip install -r requirements.txt
+pipenv install
 ```
 2. Faites une copie de `sample.env.sh` vers `env.sh`
 3. Ajustez les variables de `env.sh` à votre environnement

@@ -29,11 +29,20 @@ airflow users create \
 
 ln -s `pwd`/dags $AIRFLOW_HOME/dags
 
+# Install scalingo CLI for secure remote DB access
+curl -O https://cli-dl.scalingo.io/install && bash install
+
+# Login Scalingo
+scalingo login --api-token $SCALINGO_API_TOKEN
+
+
+
 # start the web server, default port is 8080
 echo "Starting the webserver..."
 port=${PORT:-8080}
 airflow webserver --port $port &
 
-./scheduler.sh
+airflow scheduler
+
 # visit localhost:8080 in the browser and use the admin account you just
 # created to login.

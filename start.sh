@@ -40,7 +40,7 @@ ln -s `pwd`/dags $AIRFLOW_HOME/dags
 # start the web server, default port is 8080
 echo "Starting the webserver..."
 port=${PORT:-8080}
-airflow webserver --port $port --deamon &
+airflow webserver --port $port --daemon &
 
 # If deployed on Scalingo, start the scheduler here
 # otherwise, run the scheduler command separately, once the webserver is up

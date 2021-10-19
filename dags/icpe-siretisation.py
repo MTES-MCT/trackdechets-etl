@@ -175,7 +175,7 @@ def loadToDatabase(ic_siretise, icpeFiles) -> dict:
     pgHost = Variable.get('PGSQL_HOST')
     pgPort = Variable.get('PGSQL_PORT')
     pgDatabase = Variable.get('PGSQL_DATABASE')
-    pgConnectionString = Variable.get('PGSQL_CONNECTION_STRING')
+    pgConnectionString = Variable.get('PGSQL_CONNECTION_STRING', default_var=False)
     pgSchema = Variable.get('PGSQL_SCHEMA')
     tableInstallations = Variable.get('TABLE_INSTALLATIONS')
     tableRubriques = Variable.get('TABLE_RUBRIQUES')

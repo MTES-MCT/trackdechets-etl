@@ -192,19 +192,12 @@ def loadToDatabase(ic_siretise, icpeFiles) -> dict:
     print(rubriques)
     rubriques.to_sql(tableRubriques, con=engine, schema=pgSchema, if_exists='replace')
 
-    installations = engine.execute('SELECT "id_installation_classee" FROM ic_installations').fetchall()
-    print('nb installations: ' + str(len(installations)))
-
-    rubriques = engine.execute('SELECT "id" FROM ic_rubriques').fetchall()
-    print('nb rubriques: ' + str(len(rubriques)))
-
     return (
         {
             'Installation': ic_siretise,
             'Rubrique': icpeFiles['IC_ref_nomenclature_ic.csv']
         }
     )
-
 
 @dag(start_date=datetime(2021, 1, 1),
      schedule_interval=None,

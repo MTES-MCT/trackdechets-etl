@@ -86,7 +86,7 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
                 'indicationSsp',
                 'rayon', 'precisionPositionnement'
             ],
-            'dtype': {0: str, 'siret': str, 'codePostal': str, 'codeCommuneEtablissement': str},
+            'dtype': {0: str, 's3icNumeroSiret': str, 'codePostal': str, 'codeCommuneEtablissement': str},
             'parse_dates': [],
             'index_col': 0
         },
@@ -96,7 +96,7 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
                 'statut_ic', 'id_ref_nomencla_ic'
             ],
             'dtype': {
-                's3icId': str, 'volume': float, 'statut_ic': str
+                'codeS3ic': str, 'volume': float, 'statut_ic': str
             },
             'parse_dates': ['date_debut_exploitation', 'date_fin_validite'],
             'index_col': 'id_installation_classee'
@@ -140,10 +140,10 @@ def enrichInstallations(icpeFiles: dict) -> str:
 
     ic_siretise = join(tmpDataDir, 'ic_siretise.pkl')
 
-    etablissements = pd.read_pickle(icpeFiles['IC_etablissement.csv'])[['siret']]
+    etablissements = pd.read_pickle(icpeFiles['IC_etablissement.csv'])[['s3icNumeroSiret']]
     installations = pd.read_pickle(icpeFiles['IC_installation_classee.csv'])
 
-    installations = installations.merge(etablissements, left_on='s3icId', how='left', right_index=True)
+    installations = installations.merge(etablissements, left_on='codeS3ic', how='left', right_index=True)
 
     installations.to_pickle(ic_siretise)
 
@@ -155,7 +155,7 @@ def enrichInstallations(icpeFiles: dict) -> str:
 def siretisationStats(siretisation_path):
     import pandas as pd
     icpe = pd.read_pickle(siretisation_path)
-    empty_siret = len(icpe.loc[icpe['siret'] == ''].index)
+    empty_siret = len(icpe.loc[icpe['s3icNumeroSiret'] == ''].index)
     total = len(icpe.index)
 
     stats = f'''
@@ -182,12 +182,15 @@ def loadToDatabase(ic_siretise, icpeFiles) -> dict:
 
     engineString = pgConnectionString or '{}:{}@{}:{}/{}'.format(pgUser, pgPassword, pgHost, pgPort, pgDatabase)
 
-    engine = create_engine(
-        'postgresql+psycopg2://' + engineString, echo=True)
+    engine = create_engine('postgresql+psycopg2://' + engineString)
 
-    pd.read_pickle(ic_siretise).to_sql(tableInstallations, con=engine, schema=pgSchema, if_exists='replace')
-    pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv']).to_sql(tableRubriques, con=engine, schema=pgSchema,
-                                                                   if_exists='replace')
+    installations = pd.read_pickle(ic_siretise)
+    print(installations)
+    installations.to_sql(tableInstallations, con=engine, schema=pgSchema, if_exists='replace', chunksize=3)
+
+    rubriques = pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv'])
+    print(rubriques)
+    rubriques.to_sql(tableRubriques, con=engine, schema=pgSchema, if_exists='replace')
 
     installations = engine.execute('SELECT "id_installation_classee" FROM ic_installations').fetchall()
     print('nb installations: ' + str(len(installations)))

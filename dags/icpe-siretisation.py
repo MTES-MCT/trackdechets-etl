@@ -69,10 +69,14 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
             'names': [
                 'codeS3ic',
                 's3icNumeroSiret',
-                'x', 'y', 'region', 'nomEts', 'codeCommuneEtablissement', 'codePostal',
+                'x', 'y', 'region',
+                'nomEts',
+                'codeCommuneEtablissement', 'codePostal',
                 # 1 = en construction, 2 = en fonctionnement, 3 = à l'arrêt, 4 = cessation déclarée, 5 = Récolement fait
                 'etatActivite',
-                'codeApe', 'nomCommune', 'seveso', 'regime', 'prioriteNationale',
+                'codeApe', 'nomCommune',
+                'seveso', 'regime',
+                'prioriteNationale',
                 # cf. biblio https://aida.ineris.fr/node/193
                 'ippc',
                 # Etablissement soumis à la déclaration annuelle d'émissions polluantes et de déchets
@@ -86,20 +90,22 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
                 'indicationSsp',
                 'rayon', 'precisionPositionnement'
             ],
-            'dtype': {0: str, 's3icNumeroSiret': str, 'codePostal': str, 'codeCommuneEtablissement': str},
-            'parse_dates': [],
-            'index_col': 0
+            'dtype': {'codeS3ic': str, 's3icNumeroSiret': str, 'codePostal': str, 'codeCommuneEtablissement': str},
+            'parse_dates': ['dateInspection'],
+            'usecols': ['codeS3ic', 's3icNumeroSiret', 'nomEts', 'familleIc', 'regime', 'seveso'],
+            'index_col': False
         },
         'IC_installation_classee.csv': {
             'names': [
-                'codeS3ic', 'id_installation_classee', 'volume', 'unite', 'date_debut_exploitation', 'date_fin_validite',
+                'codeS3ic', 'id', 'volume', 'unite', 'date_debut_exploitation', 'date_fin_validite',
                 'statut_ic', 'id_ref_nomencla_ic'
             ],
             'dtype': {
-                'codeS3ic': str, 'volume': float, 'statut_ic': str
+                'codeS3ic': str,  'id': str, 'volume': float, 'statut_ic': str
             },
             'parse_dates': ['date_debut_exploitation', 'date_fin_validite'],
-            'index_col': 'id_installation_classee'
+            'index_col': False,
+            'usecols': False
         },
         'IC_ref_nomenclature_ic.csv': {
             'names': [
@@ -114,7 +120,8 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
                 'ippc': int
             },
             'parse_dates': [],
-            'index_col': 'id'
+            'index_col': False,
+            'usecols': False
         }
 
     }
@@ -124,10 +131,17 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
     for file in icpeFiles:
         newFilename = join(tmpDataDir, makeNewFilename(file))
         icpeWithHeaders[file] = newFilename
-        pd.read_csv(join(tmpDataDir, file), sep=';', header=1, dtype=options[file]['dtype'],
+        usecols = (options[file]['usecols'] or options[file]['names'])
+        print(options[file]['index_col'])
+        df = pd.read_csv(join(tmpDataDir, file), sep=';', header=None, dtype=options[file]['dtype'],
                     parse_dates=options[file]['parse_dates'],
-                    names=options[file]['names'], index_col=options[file]['index_col'], dayfirst=True) \
-            .to_pickle(newFilename)
+                    names=options[file]['names'],
+                    index_col=options[file]['index_col'],
+                    dayfirst=True)
+
+        df = df[usecols]
+        print(df)
+        df.to_pickle(newFilename)
 
     return icpeWithHeaders
 
@@ -140,11 +154,59 @@ def enrichInstallations(icpeFiles: dict) -> str:
 
     ic_siretise = join(tmpDataDir, 'ic_siretise.pkl')
 
-    etablissements = pd.read_pickle(icpeFiles['IC_etablissement.csv'])[['s3icNumeroSiret']]
+    etablissements = pd.read_pickle(icpeFiles['IC_etablissement.csv'])
     installations = pd.read_pickle(icpeFiles['IC_installation_classee.csv'])
 
-    installations = installations.merge(etablissements, left_on='codeS3ic', how='left', right_index=True)
+    print(installations)
+    print(etablissements)
 
+    installations = installations.merge(etablissements, left_on='codeS3ic', right_on='codeS3ic', how='left')
+
+    def setValue(value, referenceDict):
+        if isinstance(value, str):
+            result = ''
+            try:
+                result = referenceDict[value]
+            except KeyError:
+                print('Value ' + value + ' not understood. Expecting: ' + ', '.join(referenceDict.keys()))
+            return result
+
+
+
+    # Seveso label
+    libSeveso = {
+        'S': 'Seveso',
+        'NS': 'Non Seveso',
+        'SB': 'Seveso Seuil Bas',
+        'SH': 'Seveso Seuil Haut',
+        'H': 'Seveso Seuil Haut',
+        'B': 'Seveso Seuil Bas'
+    }
+
+    installations['libSeveso'] = [ setValue(x, libSeveso) for x in installations['seveso'] ]
+
+    # famille IC label
+    familleIc = {
+        'IN': 'Industries',
+        'BO': 'Bovins',
+        'PO': 'Porcs',
+        'VO': 'Volailles',
+        'CA': 'Carrières'
+    }
+    installations['familleIc'] = [ setValue(x, familleIc) for x in installations['familleIc'] ]
+
+    # Régime label
+    regime = {
+        'A': 'Soumis à Autorisation',
+        'E': 'Enregistrement',
+        'D': 'Soumis à Déclaration',
+        'DC': 'Soumis à Déclaration avec Contrôle périodique',
+        'NC': 'Inconnu'
+    }
+    installations['libRegime'] = [setValue(x, regime) for x in installations['regime']]
+
+    print("Installations after enrichment:")
+    print(installations)
     installations.to_pickle(ic_siretise)
 
 

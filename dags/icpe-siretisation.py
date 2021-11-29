@@ -8,61 +8,61 @@ from os.path import join
 def initDir() -> str:
     import os
 
-    tmpDataDir: str = join(Variable.get("TMP_DATA_DIR_BASE"), 'tmp' + str(datetime.now()), '')
-    Variable.set('TMP_DATA_DIR', tmpDataDir)
+    tmp_data_dir: str = join(Variable.get("TMP_DATA_DIR_BASE"), 'tmp' + str(datetime.now()), '')
+    Variable.set('TMP_DATA_DIR', tmp_data_dir)
 
-    os.mkdir(tmpDataDir)
-    return tmpDataDir
+    os.mkdir(tmp_data_dir)
+    return tmp_data_dir
 
 
 @task()
 def downloadIcpeData(tmp_data_dir) -> str:
     import requests
 
-    icpeTarPath = join(tmp_data_dir, 'icpe.tar.gz')
+    icpe_tar_path = join(tmp_data_dir, 'icpe.tar.gz')
 
-    icpeUrl: str = Variable.get("ICPE_URL")
+    icpe_url: str = Variable.get("ICPE_URL")
 
     # If the file is on the local filesystem (testing env), copy instead of downloading
-    if icpeUrl.startswith('/'):
+    if icpe_url.startswith('/'):
         from shutil import copyfile
-        copyfile(icpeUrl, icpeTarPath)
+        copyfile(icpe_url, icpe_tar_path)
     else:
-        icpeData = requests.get(icpeUrl, allow_redirects=True)
-        open(icpeTarPath, 'wb').write(icpeData.content)
+        icpe_data = requests.get(icpe_url, allow_redirects=True)
+        open(icpe_tar_path, 'wb').write(icpe_data.content)
 
-    return icpeTarPath
+    return icpe_tar_path
 
 
 @task()
-def extractIcpeFiles(icpeTarPath) -> list:
+def extractIcpeFiles(icpe_tar_path) -> list:
     import tarfile
 
     tmpDataDir = Variable.get('TMP_DATA_DIR')
 
     # https://stackoverflow.com/a/37474942
-    tar = tarfile.open(icpeTarPath, 'r:gz')
-    filesToExtract = [
+    tar = tarfile.open(icpe_tar_path, 'r:gz')
+    files_to_extract = [
         'IC_etablissement.csv',
         'IC_installation_classee.csv',
         'IC_ref_nomenclature_ic.csv'
     ]
     for member in tar.getmembers():
-        if member.name in filesToExtract:
+        if member.name in files_to_extract:
             tar.extract(member, path=tmpDataDir)
 
-    return filesToExtract
+    return files_to_extract
 
 
 @task()
-def addIcpeHeaders(icpeFiles: list) -> dict:
+def addIcpeHeaders(icpe_files: list) -> dict:
     import pandas as pd
 
-    tmpDataDir = Variable.get('TMP_DATA_DIR')
+    tmp_data_dir = Variable.get('TMP_DATA_DIR')
     now = str(datetime.time(datetime.now()))
 
     def makeNewFilename(ori) -> str:
-        return join(tmpDataDir, '{}_{}.pkl'.format(ori, now))
+        return join(tmp_data_dir, '{}_{}.pkl'.format(ori, now))
 
     options = {
         "IC_etablissement.csv": {
@@ -101,7 +101,7 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
                 'statut_ic', 'id_ref_nomencla_ic'
             ],
             'dtype': {
-                'codeS3ic': str,  'id': str, 'volume': float, 'statut_ic': str
+                'codeS3ic': str, 'id': str, 'volume': float, 'statut_ic': str
             },
             'parse_dates': ['date_debut_exploitation', 'date_fin_validite'],
             'index_col': False,
@@ -126,55 +126,53 @@ def addIcpeHeaders(icpeFiles: list) -> dict:
 
     }
 
-    icpeWithHeaders = {}
+    icpe_with_headers = {}
 
-    for file in icpeFiles:
-        newFilename = join(tmpDataDir, makeNewFilename(file))
-        icpeWithHeaders[file] = newFilename
+    for file in icpe_files:
+        new_filename = join(tmp_data_dir, makeNewFilename(file))
+        icpe_with_headers[file] = new_filename
         usecols = (options[file]['usecols'] or options[file]['names'])
         print(options[file]['index_col'])
-        df = pd.read_csv(join(tmpDataDir, file), sep=';', header=None, dtype=options[file]['dtype'],
-                    parse_dates=options[file]['parse_dates'],
-                    names=options[file]['names'],
-                    index_col=options[file]['index_col'],
-                    dayfirst=True)
+        df = pd.read_csv(join(tmp_data_dir, file), sep=';', header=None, dtype=options[file]['dtype'],
+                         parse_dates=options[file]['parse_dates'],
+                         names=options[file]['names'],
+                         index_col=options[file]['index_col'],
+                         dayfirst=True)
 
         df = df[usecols]
         print(df)
-        df.to_pickle(newFilename)
+        df.to_pickle(new_filename)
 
-    return icpeWithHeaders
+    return icpe_with_headers
 
 
 @task()
-def enrichInstallations(icpeFiles: dict) -> str:
+def enrichInstallations(icpe_files: dict) -> str:
     import pandas as pd
 
-    tmpDataDir = Variable.get('TMP_DATA_DIR')
+    tmp_data_dir = Variable.get('TMP_DATA_DIR')
 
-    ic_siretise = join(tmpDataDir, 'ic_siretise.pkl')
+    ic_siretise = join(tmp_data_dir, 'ic_siretise.pkl')
 
-    etablissements = pd.read_pickle(icpeFiles['IC_etablissement.csv'])
-    installations = pd.read_pickle(icpeFiles['IC_installation_classee.csv'])
+    etablissements = pd.read_pickle(icpe_files['IC_etablissement.csv'])
+    installations = pd.read_pickle(icpe_files['IC_installation_classee.csv'])
 
     print(installations)
     print(etablissements)
 
     installations = installations.merge(etablissements, left_on='codeS3ic', right_on='codeS3ic', how='left')
 
-    def setValue(value, referenceDict):
+    def setValue(value, reference_dict):
         if isinstance(value, str):
             result = ''
             try:
-                result = referenceDict[value]
+                result = reference_dict[value]
             except KeyError:
-                print('Value ' + value + ' not understood. Expecting: ' + ', '.join(referenceDict.keys()))
+                print('Value ' + value + ' not understood. Expecting: ' + ', '.join(reference_dict.keys()))
             return result
 
-
-
     # Seveso label
-    libSeveso = {
+    lib_seveso = {
         'S': 'Seveso',
         'NS': 'Non Seveso',
         'SB': 'Seveso Seuil Bas',
@@ -183,17 +181,17 @@ def enrichInstallations(icpeFiles: dict) -> str:
         'B': 'Seveso Seuil Bas'
     }
 
-    installations['libSeveso'] = [ setValue(x, libSeveso) for x in installations['seveso'] ]
+    installations['lib_seveso'] = [setValue(x, lib_seveso) for x in installations['seveso']]
 
     # famille IC label
-    familleIc = {
+    famille_ic = {
         'IN': 'Industries',
         'BO': 'Bovins',
         'PO': 'Porcs',
         'VO': 'Volailles',
         'CA': 'Carrières'
     }
-    installations['familleIc'] = [ setValue(x, familleIc) for x in installations['familleIc'] ]
+    installations['famille_ic'] = [setValue(x, famille_ic) for x in installations['famille_ic']]
 
     # Régime label
     regime = {
@@ -208,7 +206,6 @@ def enrichInstallations(icpeFiles: dict) -> str:
     print("Installations after enrichment:")
     print(installations)
     installations.to_pickle(ic_siretise)
-
 
     return ic_siretise
 
@@ -228,38 +225,39 @@ def siretisationStats(siretisation_path):
 
 
 @task()
-def loadToDatabase(ic_siretise, icpeFiles) -> dict:
+def loadToDatabase(ic_siretise, icpe_files) -> dict:
     from sqlalchemy import create_engine
     import pandas as pd
 
-    pgUser = Variable.get('PGSQL_USER')
-    pgPassword = Variable.get('PGSQL_PASSWORD')
-    pgHost = Variable.get('PGSQL_HOST')
-    pgPort = Variable.get('PGSQL_PORT')
-    pgDatabase = Variable.get('PGSQL_DATABASE')
-    pgConnectionString = Variable.get('PGSQL_CONNECTION_STRING', default_var=False)
-    pgSchema = Variable.get('PGSQL_SCHEMA')
-    tableInstallations = Variable.get('TABLE_INSTALLATIONS')
-    tableRubriques = Variable.get('TABLE_RUBRIQUES')
+    pg_user = Variable.get('PGSQL_USER')
+    pg_password = Variable.get('PGSQL_PASSWORD')
+    pg_host = Variable.get('PGSQL_HOST')
+    pg_port = Variable.get('PGSQL_PORT')
+    pg_database = Variable.get('PGSQL_DATABASE')
+    pg_connection_string = Variable.get('PGSQL_CONNECTION_STRING', default_var=False)
+    pg_schema = Variable.get('PGSQL_SCHEMA')
+    table_installations = Variable.get('TABLE_INSTALLATIONS')
+    table_rubriques = Variable.get('TABLE_RUBRIQUES')
 
-    engineString = pgConnectionString or '{}:{}@{}:{}/{}'.format(pgUser, pgPassword, pgHost, pgPort, pgDatabase)
+    engine_string = pg_connection_string or '{}:{}@{}:{}/{}'.format(pg_user, pg_password, pg_host, pg_port, pg_database)
 
-    engine = create_engine('postgresql+psycopg2://' + engineString)
+    engine = create_engine('postgresql+psycopg2://' + engine_string)
 
     installations = pd.read_pickle(ic_siretise)
     print(installations)
-    installations.to_sql(tableInstallations, con=engine, schema=pgSchema, if_exists='replace', chunksize=3)
+    installations.to_sql(table_installations, con=engine, schema=pg_schema, if_exists='replace', chunksize=3)
 
-    rubriques = pd.read_pickle(icpeFiles['IC_ref_nomenclature_ic.csv'])
+    rubriques = pd.read_pickle(icpe_files['IC_ref_nomenclature_ic.csv'])
     print(rubriques)
-    rubriques.to_sql(tableRubriques, con=engine, schema=pgSchema, if_exists='replace')
+    rubriques.to_sql(table_rubriques, con=engine, schema=pg_schema, if_exists='replace')
 
     return (
         {
             'Installation': ic_siretise,
-            'Rubrique': icpeFiles['IC_ref_nomenclature_ic.csv']
+            'Rubrique': icpe_files['IC_ref_nomenclature_ic.csv']
         }
     )
+
 
 @dag(start_date=datetime(2021, 1, 1),
      schedule_interval=None,

@@ -191,7 +191,7 @@ def enrichInstallations(icpe_files: dict) -> str:
         'VO': 'Volailles',
         'CA': 'Carrières'
     }
-    installations['famille_ic'] = [setValue(x, famille_ic) for x in installations['famille_ic']]
+    installations['famille_ic_libelle'] = [setValue(x, famille_ic) for x in installations['familleIc']]
 
     # Régime label
     regime = {

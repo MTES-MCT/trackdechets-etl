@@ -1,7 +1,11 @@
 [requires]
-python_version = "3.7"
+python_version = "3.9"
 
 [packages]
-apache-airflow = "==2.1.4"
-Jinja2 = "==2.11.3"
-psycopg2 = "*"
+apache-airflow = "==2.2.3"
+Jinja2 = "*"
+psycopg2-binary = "*"
+requests = "*"
+minio = "*"
+pandas = "*"
+sqlalchemy = "*"

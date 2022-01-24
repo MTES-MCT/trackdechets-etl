@@ -5,7 +5,7 @@ from os.path import join
 
 
 @task()
-def initDir() -> str:
+def init_dir() -> str:
     import os
 
     tmp_data_dir: str = join(Variable.get("TMP_DATA_DIR_BASE"), 'tmp' + str(datetime.now()), '')
@@ -16,7 +16,7 @@ def initDir() -> str:
 
 
 @task()
-def downloadIcpeData(tmp_data_dir) -> str:
+def download_icpe_data(tmp_data_dir) -> str:
     import requests
 
     icpe_tar_path = join(tmp_data_dir, 'icpe.tar.gz')
@@ -35,7 +35,7 @@ def downloadIcpeData(tmp_data_dir) -> str:
 
 
 @task()
-def extractIcpeFiles(icpe_tar_path) -> list:
+def extract_icpe_files(icpe_tar_path) -> list:
     import tarfile
 
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
@@ -55,7 +55,7 @@ def extractIcpeFiles(icpe_tar_path) -> list:
 
 
 @task()
-def addIcpeHeaders(icpe_files: list) -> dict:
+def add_icpe_headers(icpe_files: list) -> dict:
     import pandas as pd
 
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
@@ -266,7 +266,7 @@ def make_stats(installations_pickle_path, rubriques_pickle_path):
 
 
 @task()
-def loadToDatabase(installations_pickle_path, rubriques_pickle_path) -> dict:
+def load_to_database(installations_pickle_path, rubriques_pickle_path) -> dict:
     from sqlalchemy import create_engine
     import pandas as pd
 
@@ -305,15 +305,15 @@ def loadToDatabase(installations_pickle_path, rubriques_pickle_path) -> dict:
      schedule_interval=None,
      user_defined_macros={},
      catchup=False)
-def icpeETL():
-    init_dir = initDir()
-    download_icpe_data = downloadIcpeData(init_dir)
-    get_icpe_data = extractIcpeFiles(download_icpe_data)
-    add_icpe_headers = addIcpeHeaders(get_icpe_data)
-    rubriques_pickle_path = enrich_rubriques(add_icpe_headers)
-    installations_pickle_path = enrich_installations(add_icpe_headers)
+def icpe_etl_dag():
+    tmp_data_dir = init_dir()
+    icpe_tar_path = download_icpe_data(tmp_data_dir)
+    get_icpe_data = extract_icpe_files(icpe_tar_path)
+    icpe_with_headers = add_icpe_headers(get_icpe_data)
+    rubriques_pickle_path = enrich_rubriques(icpe_with_headers)
+    installations_pickle_path = enrich_installations(icpe_with_headers)
     make_stats(installations_pickle_path, rubriques_pickle_path)
-    loadToDatabase(installations_pickle_path, rubriques_pickle_path)
+    load_to_database(installations_pickle_path, rubriques_pickle_path)
 
 
-icpe_etl = icpeETL()
+icpe_etl = icpe_etl_dag()

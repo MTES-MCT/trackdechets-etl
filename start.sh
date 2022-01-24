@@ -43,7 +43,7 @@ port=${PORT:-8080}
 airflow webserver --port $port --daemon &
 
 # If deployed on Scalingo, start the scheduler here
-# otherwise, run the scheduler command separately, once the webserver is up
+# otherwise, source env.sh and run the scheduler command separately, once the webserver is up
 if [[ $SCALINGO_POSTGRESQL_URL ]]
 then
   airflow scheduler

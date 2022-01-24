@@ -7,6 +7,8 @@
 # /!\ this directory is erased at the beginning of init_airflow.sh
 # Save your DAGs in ./dags
 AIRFLOW_HOME=/home/user/airflow
+export AIRFLOW_VAR_TMP_DATA_DIR_BASE="$AIRFLOW_HOME"
+
 
 # Airflow user
 AIRFLOW_USERNAME=

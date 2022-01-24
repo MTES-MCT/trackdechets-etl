@@ -38,7 +38,7 @@ def downloadIcpeData(tmp_data_dir) -> str:
 def extractIcpeFiles(icpe_tar_path) -> list:
     import tarfile
 
-    tmpDataDir = Variable.get('TMP_DATA_DIR')
+    tmp_data_dir = Variable.get('TMP_DATA_DIR')
 
     # https://stackoverflow.com/a/37474942
     tar = tarfile.open(icpe_tar_path, 'r:gz')
@@ -49,7 +49,7 @@ def extractIcpeFiles(icpe_tar_path) -> list:
     ]
     for member in tar.getmembers():
         if member.name in files_to_extract:
-            tar.extract(member, path=tmpDataDir)
+            tar.extract(member, path=tmp_data_dir)
 
     return files_to_extract
 
@@ -147,12 +147,29 @@ def addIcpeHeaders(icpe_files: list) -> dict:
 
 
 @task()
-def enrichInstallations(icpe_files: dict) -> str:
+def enrich_rubriques(icpe_files: dict) -> str:
     import pandas as pd
 
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
 
-    ic_siretise = join(tmp_data_dir, 'ic_siretise.pkl')
+    rubriques = pd.read_pickle(icpe_files['IC_ref_nomenclature_ic.csv'])
+    rubriques['rubrique_ic_alinea'] = rubriques['rubrique_ic'] + '_' + rubriques['alinea']
+    rubriques['rubrique_ic_alinea'] = rubriques['rubrique_ic_alinea'].fillna('')
+    # rubriques = rubriques[rubriques['rubrique_ic_alinea'].str.startswith('27')]
+
+    rubriques_pickle_path = join(tmp_data_dir, 'rubriques.pkl')
+    rubriques.to_pickle(rubriques_pickle_path)
+
+    return rubriques_pickle_path
+
+
+@task()
+def enrich_installations(icpe_files: dict) -> str:
+    import pandas as pd
+
+    tmp_data_dir = Variable.get('TMP_DATA_DIR')
+
+    installations_pickle_path = join(tmp_data_dir, 'installations.pkl')
 
     etablissements = pd.read_pickle(icpe_files['IC_etablissement.csv'])
     installations = pd.read_pickle(icpe_files['IC_installation_classee.csv'])
@@ -205,27 +222,51 @@ def enrichInstallations(icpe_files: dict) -> str:
 
     print("Installations after enrichment:")
     print(installations)
-    installations.to_pickle(ic_siretise)
+    installations.to_pickle(installations_pickle_path)
 
-    return ic_siretise
+    return installations_pickle_path
 
 
 @task()
-def siretisationStats(siretisation_path):
+def make_stats(installations_pickle_path, rubriques_pickle_path):
     import pandas as pd
-    icpe = pd.read_pickle(siretisation_path)
-    empty_siret = len(icpe.loc[icpe['s3icNumeroSiret'] == ''].index)
-    total = len(icpe.index)
+    installations = pd.read_pickle(installations_pickle_path)
+    rubriques = pd.read_pickle(rubriques_pickle_path)
+
+    empty_siret = len(installations.loc[installations['s3icNumeroSiret'] == ''].index)
+    total = len(installations.index)
+
+    rubriques = rubriques[rubriques['rubrique_ic_alinea'].str.startswith('27')]
+    installations = installations.merge(rubriques, left_on='id_ref_nomencla_ic', right_on='id', how='inner')
+
+    print(installations.columns)
+
+    # installations with rubriques that are relevant for trackdechets
+    # TODO complete the list
+    rubriques_trackdechets = ['2718_1', '2718_2', '2712', "2712_1", "2712_1a", "2712_1b", "2712_2", "2712_3", "2712_3a", "2712_3b",
+                              "2710", "2710_1", "2710_1a", "2710_1b",
+                              "2760_1", "2790", "2790_1", "2790_1a", "2790_1b", "2790_2"]
+    # others = ["2710_2", "2710_2a", "2710_2b", "2710_2c",  # Déchetteries non-dangereux
+    #         ]
+
+    installations_trackdechets: pd.DataFrame = installations.loc[
+        installations['rubrique_ic_alinea'].isin(rubriques_trackdechets)]
+    installations_trackdechets.to_csv(join(Variable.get("TMP_DATA_DIR_BASE"), 'installations_td.csv'))
+    nb_installations_trackdechets = len(installations_trackdechets.value_counts(subset='codeS3ic', dropna=True).index)
+
+    sirets_trackdechets = len(installations_trackdechets.value_counts(subset=['s3icNumeroSiret'], dropna=True).index)
 
     stats = f'''
-        sirets vides = {empty_siret}
-        total = {total}
+    Installations déchets dangereux
+        sans siret = {nb_installations_trackdechets - sirets_trackdechets}
+        avec siret = {sirets_trackdechets}
+        total = {nb_installations_trackdechets}
     '''
     return stats
 
 
 @task()
-def loadToDatabase(ic_siretise, icpe_files) -> dict:
+def loadToDatabase(installations_pickle_path, rubriques_pickle_path) -> dict:
     from sqlalchemy import create_engine
     import pandas as pd
 
@@ -243,18 +284,19 @@ def loadToDatabase(ic_siretise, icpe_files) -> dict:
 
     engine = create_engine('postgresql+psycopg2://' + engine_string)
 
-    installations = pd.read_pickle(ic_siretise)
+    installations = pd.read_pickle(installations_pickle_path)
     print(installations)
     installations.to_sql(table_installations, con=engine, schema=pg_schema, if_exists='replace', chunksize=3)
 
-    rubriques = pd.read_pickle(icpe_files['IC_ref_nomenclature_ic.csv'])
+    rubriques = pd.read_pickle(rubriques_pickle_path)
+
     print(rubriques)
     rubriques.to_sql(table_rubriques, con=engine, schema=pg_schema, if_exists='replace')
 
     return (
         {
-            'Installation': ic_siretise,
-            'Rubrique': icpe_files['IC_ref_nomenclature_ic.csv']
+            'Installation': installations_pickle_path,
+            'Rubrique': rubriques_pickle_path
         }
     )
 
@@ -268,9 +310,10 @@ def icpeETL():
     download_icpe_data = downloadIcpeData(init_dir)
     get_icpe_data = extractIcpeFiles(download_icpe_data)
     add_icpe_headers = addIcpeHeaders(get_icpe_data)
-    ic_siretise = enrichInstallations(add_icpe_headers)
-    siretisationStats(ic_siretise)
-    loadToDatabase(ic_siretise, add_icpe_headers)
+    rubriques_pickle_path = enrich_rubriques(add_icpe_headers)
+    installations_pickle_path = enrich_installations(add_icpe_headers)
+    make_stats(installations_pickle_path, rubriques_pickle_path)
+    loadToDatabase(installations_pickle_path, rubriques_pickle_path)
 
 
 icpe_etl = icpeETL()

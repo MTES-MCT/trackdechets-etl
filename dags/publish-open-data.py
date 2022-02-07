@@ -1,7 +1,6 @@
 from airflow.decorators import dag, task
 from airflow.models import Variable
 from datetime import datetime
-import os
 from os.path import join
 import pandas as pd
 
@@ -25,9 +24,10 @@ def query_database(tmp_data_dir) -> str:
 
     connection = create_engine(Variable.get('DATABASE_URL'))
     df = pd.read_sql_query("""
-    SELECT "Company"."siret", "Company"."createdAt", "Company"."name", "Company"."verificationStatus"
+    SELECT "Company"."siret", cast("Company"."createdAt" as date) as date_inscription,
+    "Company"."companyTypes", "Company"."name" as nom, "Company"."verificationStatus"
     FROM "default$default"."Company"
-    """, con=connection, dtype={'siret': str})
+    """, con=connection, dtype={'siret': str}, index_col='siret')
 
     company_pickle_path = join(tmp_data_dir, 'company.pkl')
     df.to_pickle(company_pickle_path)
@@ -40,10 +40,20 @@ def filter_company_data(company_pickle_path) -> str:
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
 
     df = pd.read_pickle(company_pickle_path)
-    df = df.loc[df['verificationStatus'] == 'VERIFIED']
+    print("Number of établissements unfiltered: " + str(df.index.size))
+
+    for label, row in df.iterrows():
+        if row['companyTypes'] == '{PRODUCER}':
+            df.at[label, 'verificationStatus'] = 'VERIFIED'
+
+    df = df.loc[df['verificationStatus'] == 'VERIFIED'].drop(columns=['verificationStatus'])
+
+    # Print stats
+    print("Number of établissements filtered: " + str(df.index.size))
 
     company_filtered_pickle_path = join(tmp_data_dir, 'company_filtered.pkl')
     df.to_pickle(company_filtered_pickle_path)
+    df.to_csv(company_filtered_pickle_path + '.csv')
 
     return company_filtered_pickle_path
 
@@ -59,13 +69,37 @@ def join_non_diffusible(company_filtered_pickle_path) -> str:
     SELECT "AnonymousCompany"."siret"
     FROM "default$default"."AnonymousCompany"
     """, con=connection, dtype={'siret': str})
-    df.to_csv(join(tmp_data_dir, 'anonymous.csv'))
 
     df['non_diffusible'] = 'oui'
     company_filtered = pd.read_pickle(company_filtered_pickle_path)
-    company_filtered_anonymous = company_filtered.merge(right=df, on='siret', how='left')
 
-    return "True"
+    # Add the non_diffusible column
+    company_filtered_anonymous = company_filtered.join(df.set_index('siret'), how='left')
+
+    # Save to pickle
+    company_filtered_anonymous_pickle_path = join(tmp_data_dir, 'etablissements_inscrits.pkl')
+    company_filtered_anonymous.to_pickle(company_filtered_anonymous_pickle_path)
+
+    return company_filtered_anonymous_pickle_path
+
+
+@task()
+def send_to_datagouvfr(company_filtered_anonymous_pickle_path) -> str:
+    import requests
+
+    df = pd.read_pickle(company_filtered_anonymous_pickle_path)
+    api_key = Variable.get('DATAGOUVFR_API_KEY')
+    dataset_id = Variable.get('ETABLISSEMENTS_DATASET_ID')
+    resource_id = Variable.get('ETABLISSEMENTS_RESOURCE_ID')
+
+    response = requests.post(url=f'https://www.data.gouv.fr/api/1/datasets/{dataset_id}/resources/{resource_id}/upload',
+                             headers={'X-API-KEY': api_key},
+                             files={'file': ('etablissements_inscrits.csv', df.to_csv())})
+    requests.put(url=f'https://www.data.gouv.fr/api/1/datasets/{dataset_id}/resources/{resource_id}',
+                 headers={'X-API-KEY': api_key},
+                 json={'title': 'Établissements inscrits sur Trackdéchets'})
+
+    return response.text
 
 
 # @task()
@@ -83,7 +117,8 @@ def load_data_dag():
     tmp_data_dir = init_dir()
     company_pickle_path = query_database(tmp_data_dir)
     company_filtered_pickle_path = filter_company_data(company_pickle_path)
-    join_non_diffusible(company_filtered_pickle_path)
+    company_filtered_anonymous_csv_path = join_non_diffusible(company_filtered_pickle_path)
+    send_to_datagouvfr(company_filtered_anonymous_csv_path)
 
 
 publish_open_data_etl = load_data_dag()

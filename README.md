@@ -17,7 +17,7 @@ pipenv install
 5. Installez et démarrez Airflow :
 
 ```bash
-./init_airflow.sh
+./start.sh
 ```
 
 6. Dans Airflow, activez le  DAG icpeETL

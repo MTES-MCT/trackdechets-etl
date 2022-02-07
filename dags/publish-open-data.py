@@ -109,8 +109,8 @@ def send_to_datagouvfr(company_filtered_anonymous_pickle_path) -> str:
 #     subprocess.call(['bash/load_tar_to_db.sh', tar_file])
 
 
-@dag(start_date=datetime(2021, 1, 1),
-     schedule_interval=None,
+@dag(start_date=datetime(2022, 2, 7),
+     schedule_interval="@daily",
      user_defined_macros={},
      catchup=False)
 def load_data_dag():

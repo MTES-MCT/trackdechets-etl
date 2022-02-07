@@ -35,5 +35,10 @@ DATA_ROOT_DIR="/media/colin/data"
 # Data sources
 export AIRFLOW_VAR_ICPE_URL="${DATA_ROOT_DIR}/georisques-icpe/S3IC-Georisques.tar.gz"
 
+# data.gouv.fr
+export AIRFLOW_VAR_DATAGOUVFR_API_KEY=""
+export AIRFLOW_VAR_ETABLISSEMENTS_DATASET_ID="6200ed17497fccfb4581c624"
+export AIRFLOW_VAR_ETABLISSEMENTS_RESOURCE_ID="d894e329-a44f-45ee-b993-472415af462e"
+
 # Airflow settings override
 export AIRFLOW__CORE__LOAD_EXAMPLES=False

@@ -9,3 +9,6 @@ requests = "*"
 minio = "*"
 pandas = "*"
 sqlalchemy = "*"
+
+[dev-packages]
+pytest = "*"

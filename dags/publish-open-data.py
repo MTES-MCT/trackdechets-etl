@@ -46,7 +46,9 @@ def filter_company_data(company_pickle_path) -> str:
         if row['companyTypes'] == '{PRODUCER}':
             df.at[label, 'verificationStatus'] = 'VERIFIED'
 
-    df = df.loc[df['verificationStatus'] == 'VERIFIED'].drop(columns=['verificationStatus'])
+    # Filter and drop columns
+    df = df.loc[df['verificationStatus'] == 'VERIFIED']\
+        .drop(columns=['verificationStatus', 'companyTypes'])
 
     # Print stats
     print("Number of établissements filtered: " + str(df.index.size))

@@ -115,7 +115,7 @@ def send_to_datagouvfr(company_filtered_anonymous_pickle_path) -> str:
      schedule_interval="@daily",
      user_defined_macros={},
      catchup=False)
-def load_data_dag():
+def publish_open_data_etl():
     tmp_data_dir = init_dir()
     company_pickle_path = query_database(tmp_data_dir)
     company_filtered_pickle_path = filter_company_data(company_pickle_path)
@@ -123,4 +123,4 @@ def load_data_dag():
     send_to_datagouvfr(company_filtered_anonymous_csv_path)
 
 
-publish_open_data_etl = load_data_dag()
+publish_open_data = publish_open_data_etl()

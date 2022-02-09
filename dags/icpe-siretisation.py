@@ -2,7 +2,7 @@ from airflow.decorators import dag, task
 from airflow.models import Variable
 from datetime import datetime
 from os.path import join
-
+import pandas as pd
 
 @task()
 def init_dir() -> str:
@@ -56,7 +56,6 @@ def extract_icpe_files(icpe_tar_path) -> list:
 
 @task()
 def add_icpe_headers(icpe_files: list) -> dict:
-    import pandas as pd
 
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
     now = str(datetime.time(datetime.now()))
@@ -148,7 +147,6 @@ def add_icpe_headers(icpe_files: list) -> dict:
 
 @task()
 def enrich_rubriques(icpe_files: dict) -> str:
-    import pandas as pd
 
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
 
@@ -165,7 +163,6 @@ def enrich_rubriques(icpe_files: dict) -> str:
 
 @task()
 def enrich_installations(icpe_files: dict) -> str:
-    import pandas as pd
 
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
 
@@ -228,13 +225,47 @@ def enrich_installations(icpe_files: dict) -> str:
 
 
 @task()
+def get_siret_from_gerep(installations_pickle_path) -> str:
+
+    df_gerep = pd.read_csv('https://docs.google.com/spreadsheets/d/1uzcWPJhpcQCbbVbW7f6UA2XpD0zJ7Iqb/export?format=csv',
+                           usecols=['Code établissement', 'Numero Siret', 'Annee'],
+                           dtype={'Code établissement': str, 'Numero Siret': str, 'Annee': str},
+                           index_col='Code établissement')
+
+    # GEREP data has several SIRET for each s3ic ID
+    # Sort by ascending year, then group identical s3ic ids and keep the last SIRET (hopefully the current one)
+    df_gerep.sort_values(by='Annee', inplace=True, ascending=True)
+    df_gerep.drop(columns=['Annee'], inplace=True)
+    df_gerep = df_gerep.groupby(level=0).last()
+
+    # s3ic codes from GEREP have one less padding 0 at the beginning, let's fix it
+    df_gerep.index = '0' + df_gerep.index
+
+    df_installations = pd.read_pickle(installations_pickle_path)
+    print(df_installations[['s3icNumeroSiret']].info())
+
+    df_installations = df_installations.merge(df_gerep, left_on='codeS3ic', right_index=True, how='left')
+
+    # df.where(if false, use this value, on the row axis)
+    df_installations.where(df_installations['s3icNumeroSiret'].str.len() == 14,
+                           df_installations['Numero Siret'], axis=0)
+
+    df_installations.drop(columns=['Numero Siret'], inplace=True)
+
+    print(df_installations[['s3icNumeroSiret']].info())
+
+    df_installations.to_pickle(installations_pickle_path)
+
+    return installations_pickle_path
+
+
+@task()
 def make_stats(installations_pickle_path, rubriques_pickle_path):
-    import pandas as pd
     installations = pd.read_pickle(installations_pickle_path)
     rubriques = pd.read_pickle(rubriques_pickle_path)
 
-    empty_siret = len(installations.loc[installations['s3icNumeroSiret'] == ''].index)
-    total = len(installations.index)
+    empty_siret = installations.loc[installations['s3icNumeroSiret'] == ''].index.size
+    total = installations.index.size
 
     rubriques = rubriques[rubriques['rubrique_ic_alinea'].str.startswith('27')]
     installations = installations.merge(rubriques, left_on='id_ref_nomencla_ic', right_on='id', how='inner')
@@ -243,8 +274,8 @@ def make_stats(installations_pickle_path, rubriques_pickle_path):
 
     # installations with rubriques that are relevant for trackdechets
     # TODO complete the list
-    rubriques_trackdechets = ['2718_1', '2718_2', '2712', "2712_1", "2712_1a", "2712_1b", "2712_2", "2712_3", "2712_3a", "2712_3b",
-                              "2710", "2710_1", "2710_1a", "2710_1b",
+    rubriques_trackdechets = ['2718_1', '2718_2', '2712', "2712_1", "2712_1a", "2712_1b", "2712_2", "2712_3", "2712_3a",
+                              "2712_3b", "2710", "2710_1", "2710_1a", "2710_1b",
                               "2760_1", "2790", "2790_1", "2790_1a", "2790_1b", "2790_2"]
     # others = ["2710_2", "2710_2a", "2710_2b", "2710_2c",  # Déchetteries non-dangereux
     #         ]
@@ -268,7 +299,6 @@ def make_stats(installations_pickle_path, rubriques_pickle_path):
 @task()
 def load_to_database(installations_pickle_path, rubriques_pickle_path) -> dict:
     from sqlalchemy import create_engine
-    import pandas as pd
 
     pg_user = Variable.get('PGSQL_USER')
     pg_password = Variable.get('PGSQL_PASSWORD')
@@ -311,7 +341,7 @@ def icpe_etl_dag():
     get_icpe_data = extract_icpe_files(icpe_tar_path)
     icpe_with_headers = add_icpe_headers(get_icpe_data)
     rubriques_pickle_path = enrich_rubriques(icpe_with_headers)
-    installations_pickle_path = enrich_installations(icpe_with_headers)
+    installations_pickle_path = get_siret_from_gerep(enrich_installations(icpe_with_headers))
     make_stats(installations_pickle_path, rubriques_pickle_path)
     load_to_database(installations_pickle_path, rubriques_pickle_path)
 

@@ -4,6 +4,7 @@ from datetime import datetime
 from os.path import join
 import pandas as pd
 
+
 @task()
 def init_dir() -> str:
     import os
@@ -17,8 +18,6 @@ def init_dir() -> str:
 
 @task()
 def download_icpe_data(tmp_data_dir) -> str:
-    import requests
-
     icpe_tar_path = join(tmp_data_dir, 'icpe.tar.gz')
 
     icpe_url: str = Variable.get("ICPE_URL")
@@ -28,7 +27,8 @@ def download_icpe_data(tmp_data_dir) -> str:
         from shutil import copyfile
         copyfile(icpe_url, icpe_tar_path)
     else:
-        icpe_data = requests.get(icpe_url, allow_redirects=True)
+        from requests import get
+        icpe_data = get(icpe_url, allow_redirects=True)
         open(icpe_tar_path, 'wb').write(icpe_data.content)
 
     return icpe_tar_path
@@ -56,7 +56,6 @@ def extract_icpe_files(icpe_tar_path) -> list:
 
 @task()
 def add_icpe_headers(icpe_files: list) -> dict:
-
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
     now = str(datetime.time(datetime.now()))
 
@@ -84,14 +83,15 @@ def add_icpe_headers(icpe_files: list) -> dict:
                 'familleIc',
                 # 1 + 1 = DREAL, etc.
                 'baseIdService',
-                'natureIdService', 'adresse1' 'adresse2', 'dateInspection',
+                'natureIdService', 'adresse1', 'adresse2', 'dateInspection',
                 # Sites et sols pollués:
                 'indicationSsp',
                 'rayon', 'precisionPositionnement'
             ],
             'dtype': {'codeS3ic': str, 's3icNumeroSiret': str, 'codePostal': str, 'codeCommuneEtablissement': str},
             'parse_dates': ['dateInspection'],
-            'usecols': ['codeS3ic', 's3icNumeroSiret', 'nomEts', 'familleIc', 'regime', 'seveso'],
+            'usecols': ['codeS3ic', 's3icNumeroSiret', 'nomEts', 'familleIc', 'regime', 'seveso', 'codePostal',
+                        'nomCommune', 'adresse1', 'adresse2'],
             'index_col': False
         },
         'IC_installation_classee.csv': {
@@ -147,7 +147,6 @@ def add_icpe_headers(icpe_files: list) -> dict:
 
 @task()
 def enrich_rubriques(icpe_files: dict) -> str:
-
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
 
     rubriques = pd.read_pickle(icpe_files['IC_ref_nomenclature_ic.csv'])
@@ -163,7 +162,6 @@ def enrich_rubriques(icpe_files: dict) -> str:
 
 @task()
 def enrich_installations(icpe_files: dict) -> str:
-
     tmp_data_dir = Variable.get('TMP_DATA_DIR')
 
     installations_pickle_path = join(tmp_data_dir, 'installations.pkl')
@@ -218,15 +216,55 @@ def enrich_installations(icpe_files: dict) -> str:
     installations['libRegime'] = [setValue(x, regime) for x in installations['regime']]
 
     print("Installations after enrichment:")
-    print(installations)
+    print(installations.columns)
     installations.to_pickle(installations_pickle_path)
 
     return installations_pickle_path
 
 
 @task()
-def get_siret_from_gerep(installations_pickle_path) -> str:
+def get_siret_from_trackdechets(installations_pickle_path) -> str:
+    from sqlalchemy import create_engine
 
+    connection = create_engine(Variable.get('DATABASE_URL'))
+    df_company: pd.DataFrame = pd.read_sql_query("""
+        SELECT "Company"."siret" as siret, "Company"."name" as nom, "Company"."address" as address
+        FROM "default$default"."Company"
+        """, con=connection, dtype={'siret': str})
+
+    # Add a postal_code column from the Company.address column
+    df_company['postal_code'] = df_company['address'].str.extract(r'(\d{5}) ')
+
+    df_installations: pd.DataFrame = pd.read_pickle(installations_pickle_path)
+
+    print("Before:")
+    print(df_installations[['s3icNumeroSiret']].query('s3icNumeroSiret.str.len() == 14').nunique())
+
+    df_installations = df_installations.merge(df_company,
+                                              left_on=['nomEts'],
+                                              right_on=['nom'],
+                                              how='left')
+
+    for row in df_installations[['s3icNumeroSiret', 'siret']].itertuples():
+        if len(str(row[1])) < 14 and len(str(row[2])) == 14:
+            df_installations.at[row[0], 's3icNumeroSiret'] = row[2]
+
+    # df_installations['s3icNumeroSiret'] = df_installations.where(df_installations['s3icNumeroSiret'].str.len() == 14,
+    #                                                             df_installations['siret'], axis=0)
+
+    print("After:")
+    print(df_installations[['s3icNumeroSiret']].query('s3icNumeroSiret.str.len() == 14').nunique())
+
+    df_installations.drop(columns=['siret', 'postal_code', 'address'], inplace=True)
+
+    installations_enriched_path = installations_pickle_path + '_td.pkl'
+    df_installations.to_pickle(installations_enriched_path)
+
+    return installations_enriched_path
+
+
+@task()
+def get_siret_from_gerep(installations_pickle_path) -> str:
     df_gerep = pd.read_csv('https://docs.google.com/spreadsheets/d/1uzcWPJhpcQCbbVbW7f6UA2XpD0zJ7Iqb/export?format=csv',
                            usecols=['Code établissement', 'Numero Siret', 'Annee'],
                            dtype={'Code établissement': str, 'Numero Siret': str, 'Annee': str},
@@ -242,21 +280,26 @@ def get_siret_from_gerep(installations_pickle_path) -> str:
     df_gerep.index = '0' + df_gerep.index
 
     df_installations = pd.read_pickle(installations_pickle_path)
-    print(df_installations[['s3icNumeroSiret']].info())
+    print(df_installations[['s3icNumeroSiret']].query('s3icNumeroSiret.str.len() == 14').nunique())
 
     df_installations = df_installations.merge(df_gerep, left_on='codeS3ic', right_index=True, how='left')
 
+    for row in df_installations[['s3icNumeroSiret', 'Numero Siret']].itertuples(index=True):
+        if len(str(row[1])) < 14 and len(str(row[2])) == 14:
+            df_installations.at[row[0], 's3icNumeroSiret'] = row[2]
+
     # df.where(if false, use this value, on the row axis)
-    df_installations.where(df_installations['s3icNumeroSiret'].str.len() == 14,
-                           df_installations['Numero Siret'], axis=0)
+    # df_installations = df_installations.where(df_installations['s3icNumeroSiret'].str.len() == 14,
+    #                                           df_installations['Numero Siret'], axis=0)
 
     df_installations.drop(columns=['Numero Siret'], inplace=True)
 
-    print(df_installations[['s3icNumeroSiret']].info())
+    print(df_installations[['s3icNumeroSiret']].query('s3icNumeroSiret.str.len() == 14').nunique())
 
-    df_installations.to_pickle(installations_pickle_path)
+    installations_enriched_path = installations_pickle_path + '_gerep.pkl'
+    df_installations.to_pickle(installations_enriched_path)
 
-    return installations_pickle_path
+    return installations_enriched_path
 
 
 @task()
@@ -264,28 +307,67 @@ def make_stats(installations_pickle_path, rubriques_pickle_path):
     installations = pd.read_pickle(installations_pickle_path)
     rubriques = pd.read_pickle(rubriques_pickle_path)
 
-    empty_siret = installations.loc[installations['s3icNumeroSiret'] == ''].index.size
-    total = installations.index.size
-
     rubriques = rubriques[rubriques['rubrique_ic_alinea'].str.startswith('27')]
     installations = installations.merge(rubriques, left_on='id_ref_nomencla_ic', right_on='id', how='inner')
-
-    print(installations.columns)
+    # installations.to_csv(join(Variable.get("TMP_DATA_DIR"), 'installations_rubriques.csv'))
+    installations.to_pickle(join(Variable.get("TMP_DATA_DIR"), 'installations_rubriques.pkl'))
 
     # installations with rubriques that are relevant for trackdechets
     # TODO complete the list
-    rubriques_trackdechets = ['2718_1', '2718_2', '2712', "2712_1", "2712_1a", "2712_1b", "2712_2", "2712_3", "2712_3a",
-                              "2712_3b", "2710", "2710_1", "2710_1a", "2710_1b",
-                              "2760_1", "2790", "2790_1", "2790_1a", "2790_1b", "2790_2"]
+    rubriques_trackdechets = ['2710',
+                              '2710_1',
+                              '2710_1a',
+                              '2710_1b',
+                              '2710_2',
+                              '2710_2a',
+                              '2710_2b',
+                              '2710_2c',
+                              '2712',
+                              '2712_1',
+                              '2712_1a',
+                              '2712_1b',
+                              '2712_2',
+                              '2712_3',
+                              '2712_3a',
+                              '2712_3b',
+                              '2718_1',
+                              '2718_2',
+                              '2760_1',
+                              '2790',
+                              '2790_1',
+                              '2790_1a',
+                              '2790_1b',
+                              '2790_2']
     # others = ["2710_2", "2710_2a", "2710_2b", "2710_2c",  # Déchetteries non-dangereux
     #         ]
 
+    # Add : 2710 (tout)
+    # 2712
+    # 2718
+    # 2719
+    # 2720-1
+    # 2760-1
+    # 2760-4
+    # 2770
+    # 2790
+    # 2792
+    # 2793
+    # 2795
+    # 2797
+    # 2798
+
     installations_trackdechets: pd.DataFrame = installations.loc[
         installations['rubrique_ic_alinea'].isin(rubriques_trackdechets)]
-    installations_trackdechets.to_csv(join(Variable.get("TMP_DATA_DIR_BASE"), 'installations_td.csv'))
-    nb_installations_trackdechets = len(installations_trackdechets.value_counts(subset='codeS3ic', dropna=True).index)
+    installations_trackdechets.to_csv(join(Variable.get("TMP_DATA_DIR"), 'installations_td.csv'))
 
-    sirets_trackdechets = len(installations_trackdechets.value_counts(subset=['s3icNumeroSiret'], dropna=True).index)
+    installations_trackdechets.drop_duplicates(subset=['codeS3ic']). \
+        query('s3icNumeroSiret.str.len() < 14 or s3icNumeroSiret.isnull()'). \
+        to_csv(join(Variable.get("TMP_DATA_DIR"), 'installations_td_no_siret.csv'))
+
+    nb_installations_trackdechets = installations_trackdechets.drop_duplicates(subset=['codeS3ic']).index.size
+
+    sirets_trackdechets = installations_trackdechets.query('s3icNumeroSiret.str.len() == 14'). \
+        drop_duplicates(subset=['s3icNumeroSiret']).index.size
 
     stats = f'''
     Installations déchets dangereux
@@ -341,9 +423,11 @@ def icpe_etl_dag():
     get_icpe_data = extract_icpe_files(icpe_tar_path)
     icpe_with_headers = add_icpe_headers(get_icpe_data)
     rubriques_pickle_path = enrich_rubriques(icpe_with_headers)
-    installations_pickle_path = get_siret_from_gerep(enrich_installations(icpe_with_headers))
+    installations_pickle_path = enrich_installations(icpe_with_headers)
+    enriched_installations_pickle_path = get_siret_from_trackdechets(get_siret_from_gerep(installations_pickle_path))
+    make_stats(enriched_installations_pickle_path, rubriques_pickle_path)
     make_stats(installations_pickle_path, rubriques_pickle_path)
-    load_to_database(installations_pickle_path, rubriques_pickle_path)
+    # load_to_database(installations_pickle_path, rubriques_pickle_path)
 
 
 icpe_etl = icpe_etl_dag()

@@ -13,3 +13,4 @@ sqlalchemy = "*"
 [dev-packages]
 pytest = "*"
 jupyter = "*"
+openpyxl = "*"

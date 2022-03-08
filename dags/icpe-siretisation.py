@@ -313,64 +313,39 @@ def make_stats(installations_pickle_path, rubriques_pickle_path):
     installations.to_pickle(join(Variable.get("TMP_DATA_DIR"), 'installations_rubriques.pkl'))
 
     # installations with rubriques that are relevant for trackdechets
-    # TODO complete the list
-    rubriques_trackdechets = ['2710',
-                              '2710_1',
-                              '2710_1a',
-                              '2710_1b',
-                              '2710_2',
-                              '2710_2a',
-                              '2710_2b',
-                              '2710_2c',
-                              '2712',
-                              '2712_1',
-                              '2712_1a',
-                              '2712_1b',
-                              '2712_2',
-                              '2712_3',
-                              '2712_3a',
-                              '2712_3b',
-                              '2718_1',
-                              '2718_2',
-                              '2760_1',
-                              '2790',
-                              '2790_1',
-                              '2790_1a',
-                              '2790_1b',
-                              '2790_2']
-    # others = ["2710_2", "2710_2a", "2710_2b", "2710_2c",  # Déchetteries non-dangereux
-    #         ]
+    rubriques_trackdechets = [
+        '2710',
+        '2712',
+        '2718',
+        '2770',
+        '2790',
+        '2792',
+        '2793',
+        '2795',
+        '2797',
+        '2798']
+    rubriques_trackdechets_alinea = [
+        '2720_1'
+        '2760_1',
+        '2760_4'
+    ]
+    installations_td = \
+        installations.loc[(installations['rubrique_ic'].isin(rubriques_trackdechets))
+                          | (installations['rubrique_ic_alinea'].isin(rubriques_trackdechets_alinea))]
 
-    # Add : 2710 (tout)
-    # 2712
-    # 2718
-    # 2719
-    # 2720-1
-    # 2760-1
-    # 2760-4
-    # 2770
-    # 2790
-    # 2792
-    # 2793
-    # 2795
-    # 2797
-    # 2798
+    installations_td = installations_td.drop_duplicates(subset=['codeS3ic'])
+    nb_installations_trackdechets = installations_td.index.size
 
-    installations_trackdechets: pd.DataFrame = installations.loc[
-        installations['rubrique_ic_alinea'].isin(rubriques_trackdechets)]
-    installations_trackdechets.to_csv(join(Variable.get("TMP_DATA_DIR"), 'installations_td.csv'))
+    # Extract installations without SIRET to disk for other uses
+    installations_td_no_siret = installations_td.query('s3icNumeroSiret.str.len() < 14 or s3icNumeroSiret.isnull()')
+    installations_td_no_siret.to_pickle(join(Variable.get("TMP_DATA_DIR"), 'installations_td_no_siret.pkl'))
+    installations_td_no_siret.to_csv(join(Variable.get("TMP_DATA_DIR"), 'installations_td_no_siret.csv'))
 
-    installations_trackdechets.drop_duplicates(subset=['codeS3ic']). \
-        query('s3icNumeroSiret.str.len() < 14 or s3icNumeroSiret.isnull()'). \
-        to_csv(join(Variable.get("TMP_DATA_DIR"), 'installations_td_no_siret.csv'))
-
-    nb_installations_trackdechets = installations_trackdechets.drop_duplicates(subset=['codeS3ic']).index.size
-
-    sirets_trackdechets = installations_trackdechets.query('s3icNumeroSiret.str.len() == 14'). \
+    sirets_trackdechets = installations_td.query('s3icNumeroSiret.str.len() == 14'). \
         drop_duplicates(subset=['s3icNumeroSiret']).index.size
 
     stats = f'''
-    Installations déchets dangereux
+    Installations déchets dangereuxn concernées par Trackdéchets
         sans siret = {nb_installations_trackdechets - sirets_trackdechets}
         avec siret = {sirets_trackdechets}
         total = {nb_installations_trackdechets}

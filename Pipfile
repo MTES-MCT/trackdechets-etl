@@ -2,7 +2,7 @@
 python_version = "3.9"
 
 [packages]
-apache-airflow = "==2.2.3"
+apache-airflow = "*"
 Jinja2 = "*"
 psycopg2-binary = "*"
 requests = "*"
@@ -12,3 +12,5 @@ sqlalchemy = "*"
 
 [dev-packages]
 pytest = "*"
+jupyter = "*"
+openpyxl = "*"

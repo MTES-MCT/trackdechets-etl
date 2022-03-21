@@ -25,4 +25,13 @@ pipenv install
 
 Le DAG est exécuté.
 
+## Notes de version
+
+### 21/03/2022
+
+- ajout des données GEREP pour la siretisation des données ICPE
+- ajout de nouvelles rubriques aux rubriques Trackdéchets
+- amélioration des stats de siretisation
+- mise à jour d'Airflow (2.2.3 => 2.2.4)
+
 

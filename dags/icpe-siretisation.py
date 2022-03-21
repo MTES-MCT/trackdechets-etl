@@ -223,7 +223,7 @@ def enrich_installations(icpe_files: dict) -> str:
 
 
 @task()
-def get_siret_from_trackdechets(installations_pickle_path) -> str:
+def get_siret_from_trackdechets_company(installations_pickle_path) -> str:
     from sqlalchemy import create_engine
 
     connection = create_engine(Variable.get('DATABASE_URL'))
@@ -333,22 +333,26 @@ def make_stats(installations_pickle_path, rubriques_pickle_path):
         installations.loc[(installations['rubrique_ic'].isin(rubriques_trackdechets))
                           | (installations['rubrique_ic_alinea'].isin(rubriques_trackdechets_alinea))]
 
-    installations_td = installations_td.drop_duplicates(subset=['codeS3ic'])
+    installations_td = installations_td[['codeS3ic', 's3icNumeroSiret']].drop_duplicates(subset=['codeS3ic'])
     nb_installations_trackdechets = installations_td.index.size
 
     # Extract installations without SIRET to disk for other uses
     installations_td_no_siret = installations_td.query('s3icNumeroSiret.str.len() < 14 or s3icNumeroSiret.isnull()')
-    installations_td_no_siret.to_pickle(join(Variable.get("TMP_DATA_DIR"), 'installations_td_no_siret.pkl'))
-    installations_td_no_siret.to_csv(join(Variable.get("TMP_DATA_DIR"), 'installations_td_no_siret.csv'))
+    nb_installations_td_no_siret = installations_td_no_siret.index.size
+    # installations_td_no_siret.to_pickle(join(Variable.get("TMP_DATA_DIR"), 'installations_td_no_siret.pkl'))
+    # installations_td_no_siret.to_csv(join(Variable.get("TMP_DATA_DIR"), 'installations_td_no_siret.csv'))
 
     sirets_trackdechets = installations_td.query('s3icNumeroSiret.str.len() == 14'). \
         drop_duplicates(subset=['s3icNumeroSiret']).index.size
 
     stats = f'''
     Installations déchets dangereuxn concernées par Trackdéchets
-        sans siret = {nb_installations_trackdechets - sirets_trackdechets}
-        avec siret = {sirets_trackdechets}
-        total = {nb_installations_trackdechets}
+        nombre d'installations TD (n° s3ic) = {nb_installations_trackdechets}
+        installations TD avec siret (soustraction) = {nb_installations_trackdechets - nb_installations_td_no_siret}
+        ({(nb_installations_trackdechets - nb_installations_td_no_siret)/nb_installations_trackdechets * 100} %)
+        installations TD sans siret (index.size) = {nb_installations_td_no_siret}
+        ({nb_installations_td_no_siret / nb_installations_trackdechets * 100} %)
+        nombre de sirets uniques dans installations TD (déduplication sirets) = {sirets_trackdechets}
     '''
     return stats
 
@@ -399,7 +403,8 @@ def icpe_etl_dag():
     icpe_with_headers = add_icpe_headers(get_icpe_data)
     rubriques_pickle_path = enrich_rubriques(icpe_with_headers)
     installations_pickle_path = enrich_installations(icpe_with_headers)
-    enriched_installations_pickle_path = get_siret_from_trackdechets(get_siret_from_gerep(installations_pickle_path))
+    enriched_installations_pickle_path = get_siret_from_trackdechets_company(
+            get_siret_from_gerep(installations_pickle_path))
     make_stats(enriched_installations_pickle_path, rubriques_pickle_path)
     make_stats(installations_pickle_path, rubriques_pickle_path)
     # load_to_database(installations_pickle_path, rubriques_pickle_path)

@@ -8,10 +8,15 @@ import pandas as pd
 @task()
 def init_dir() -> str:
     import os
+    import shutil
 
-    tmp_data_dir: str = join(Variable.get("TMP_DATA_DIR_BASE"), 'tmp' + str(datetime.now()), '')
+    tmp_data_dir: str = join(Variable.get("TMP_DATA_DIR_BASE"), 'tmp')
     Variable.set('TMP_DATA_DIR', tmp_data_dir)
 
+    try:
+        shutil.rmtree(tmp_data_dir)
+    except FileNotFoundError:
+        print(tmp_data_dir, "not found")
     os.mkdir(tmp_data_dir)
     return tmp_data_dir
 
@@ -174,7 +179,7 @@ def enrich_installations(icpe_files: dict) -> str:
 
     installations = installations.merge(etablissements, left_on='codeS3ic', right_on='codeS3ic', how='left')
 
-    def setValue(value, reference_dict):
+    def set_value(value, reference_dict):
         if isinstance(value, str):
             result = ''
             try:
@@ -193,7 +198,7 @@ def enrich_installations(icpe_files: dict) -> str:
         'B': 'Seveso Seuil Bas'
     }
 
-    installations['lib_seveso'] = [setValue(x, lib_seveso) for x in installations['seveso']]
+    installations['lib_seveso'] = [set_value(x, lib_seveso) for x in installations['seveso']]
 
     # famille IC label
     famille_ic = {
@@ -203,7 +208,7 @@ def enrich_installations(icpe_files: dict) -> str:
         'VO': 'Volailles',
         'CA': 'Carrières'
     }
-    installations['famille_ic_libelle'] = [setValue(x, famille_ic) for x in installations['familleIc']]
+    installations['famille_ic_libelle'] = [set_value(x, famille_ic) for x in installations['familleIc']]
 
     # Régime label
     regime = {
@@ -213,7 +218,7 @@ def enrich_installations(icpe_files: dict) -> str:
         'DC': 'Soumis à Déclaration avec Contrôle périodique',
         'NC': 'Inconnu'
     }
-    installations['libRegime'] = [setValue(x, regime) for x in installations['regime']]
+    installations['libRegime'] = [set_value(x, regime) for x in installations['regime']]
 
     print("Installations after enrichment:")
     print(installations.columns)
@@ -265,7 +270,7 @@ def get_siret_from_trackdechets_company(installations_pickle_path) -> str:
 
 @task()
 def get_siret_from_gerep(installations_pickle_path) -> str:
-    df_gerep = pd.read_csv('https://docs.google.com/spreadsheets/d/1uzcWPJhpcQCbbVbW7f6UA2XpD0zJ7Iqb/export?format=csv',
+    df_gerep = pd.read_csv('/home/colin/Downloads/GEREP-2016-2017.xlsx - Etablissements producteurs.csv',
                            usecols=['Code établissement', 'Numero Siret', 'Annee'],
                            dtype={'Code établissement': str, 'Numero Siret': str, 'Annee': str},
                            index_col='Code établissement')
